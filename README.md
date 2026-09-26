@@ -19,6 +19,9 @@ version**, **Put it online**.
 
 ---
 
+> **Part of [the nano family](https://github.com/Agarwalrishu13/nano)** — eleven offline-first apps for people who do not code. This is the map of the whole project.
+
+
 ## What this is, in one paragraph
 
 Everything nanoGit does, it says in sentences a person can read: *"Saved a
@@ -124,16 +127,20 @@ nanoGit forgets everything; the histories it made keep working with ordinary git
 
 | app | what it is for |
 |---|---|
-| [nanoHome](https://github.com/Agarwalrishu13/nanohome) | one front door for every nano app on this computer |
-| [nanoLaama](https://github.com/Agarwalrishu13/nanolaama) | talk to an AI on your own computer, offline |
-| [nanoLearn](https://github.com/Agarwalrishu13/nanolearn) | drop a spreadsheet, get an answer machine |
-| [nanoDoc](https://github.com/Agarwalrishu13/nanodoc) | drop in a document, ask it anything |
-| [nanoSay](https://github.com/Agarwalrishu13/nanosay) | have anything read out loud |
-| [nanoWrap](https://github.com/Agarwalrishu13/nanowrap) | the programs on your computer, with buttons |
-| [nanoShell](https://github.com/Agarwalrishu13/nanoshell) | any program at all, with words instead of flags |
-| [nanoDesk](https://github.com/Agarwalrishu13/nanodesk) | every nano-style app you have, one click away |
-| [nonoForge](https://github.com/Agarwalrishu13/nonoforge) | pick a card, press one button, you have an app |
+| 🧭 [nanoHome](https://github.com/Agarwalrishu13/nanohome) | one front door for every nano app on this computer |
+| 🧠 [nanoLaama](https://github.com/Agarwalrishu13/nanolaama) | talk to an AI on your own computer, offline |
+| 📚 [nanoDoc](https://github.com/Agarwalrishu13/nanodoc) | drop in a document, ask it anything |
+| 📊 [nanoLearn](https://github.com/Agarwalrishu13/nanolearn) | drop a spreadsheet, get an answer machine |
+| 🔊 [nanoSay](https://github.com/Agarwalrishu13/nanosay) | have anything read out loud |
+| 🧲 [nanoPick](https://github.com/Agarwalrishu13/nanopick) | find your files by saying what you remember |
+| 🎵 [nanoTune](https://github.com/Agarwalrishu13/nanotune) | your music, one page, no account |
+| 🧰 [nanoWrap](https://github.com/Agarwalrishu13/nanowrap) | the best-known programs, with ready-made buttons |
+| ⌨️ [nanoShell](https://github.com/Agarwalrishu13/nanoshell) | any program at all, with words instead of flags |
+| 🗂 [**nanoGit**](https://github.com/Agarwalrishu13/nanogit) | your folder, kept safe without learning git — *this repo* |
+| 🖥 [nanoDesk](https://github.com/Agarwalrishu13/nanodesk) | every nano-style app you have, one click away |
+| 🃏 [nonoForge](https://github.com/Agarwalrishu13/nonoforge) | pick a card, press one button, you have an app |
 
----
+And underneath them, for people who want to see the gears: [nanollama.c](https://github.com/Agarwalrishu13/nanollama.c) (the C engine), [nanobrain](https://github.com/Agarwalrishu13/nanobrain) (training from scratch), [nanoforge](https://github.com/Agarwalrishu13/nanoforge) (the model studio) and [nanorl](https://github.com/Agarwalrishu13/nanorl) (alignment).
 
+The map of the whole project — what each app is for, and how they fit together — lives in [the nano family](https://github.com/Agarwalrishu13/nano).
 MIT license. Made for people who do not write code, by someone who does.
