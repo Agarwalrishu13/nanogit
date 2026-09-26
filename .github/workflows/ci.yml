@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Every runner has git, and git is what this app drives, so the whole
+      # suite runs for real here rather than against a stand-in.
+      - name: Show what this machine has
+        run: python -m nanogit doctor
+
+      - name: Run the test suite
+        run: python -m unittest discover tests -v
+
+      - name: Make a repository out of this checkout, end to end
+        shell: bash
+        run: |
+          python - <<'PY'
+          import tempfile, pathlib, subprocess
+          from nanogit import gitrun, repo, survey
+
+          git = gitrun.Git()
+          work = pathlib.Path(tempfile.mkdtemp()) / "demo-project"
+          work.mkdir()
+          (work / "main.py").write_text("print('hello')\n", encoding="utf-8")
+          (work / ".env").write_text("API_KEY=sk-abcdefghijklmnopqrstuvwx\n", encoding="utf-8")
+
+          result = repo.start(git, str(work), name="Demo Project")
+          assert result["ok"], result
+          for line in result["steps"]:
+              print("  " + line)
+          assert (work / "README.md").exists(), "no README was written"
+          assert ".env" in (work / ".gitignore").read_text(encoding="utf-8")
+
+          state = repo.status(git, str(work))
+          assert state["tracked"] and state["checkpoints"] >= 1, state
+          print("  checkpoints:", state["checkpoints"])
+
+          (work / "second.py").write_text("print('more')\n", encoding="utf-8")
+          saved = repo.checkpoint(git, str(work), "Added a second file")
+          assert saved["ok"], saved
+          back = repo.go_back(git, str(work), git.log(str(work))[-1]["sha"])
+          assert back["ok"], back
+          for line in back["steps"]:
+              print("  " + line)
+          print("OK")
+          PY

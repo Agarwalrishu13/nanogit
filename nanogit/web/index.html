@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanoGit — your folder, kept safe</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕘</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">🕘</div>
+    <div>
+      <div class="brand-name">nanoGit</div>
+      <div class="brand-sub">Your folder, kept safe — without learning git</div>
+    </div>
+  </div>
+  <div class="grow"></div>
+  <span class="pill" id="gitPill">looking…</span>
+  <span class="pill" id="ghPill">…</span>
+  <button class="btn ghost small" id="settingsBtn" title="Settings">⚙︎</button>
+</header>
+
+<nav class="steps" id="steps">
+  <button class="step" data-step="find"><span>1</span> Find your folder</button>
+  <button class="step" data-step="look"><span>2</span> Look it over</button>
+  <button class="step" data-step="keep"><span>3</span> Keep it safe</button>
+  <button class="step" data-step="online"><span>4</span> Put it online</button>
+</nav>
+
+<main id="main">
+
+  <!-- ------------------------------------------------- 1. find your folder -->
+  <section class="panel" id="panel-find">
+    <div class="banner" id="gitMissing" hidden></div>
+
+    <div class="drop" id="drop">
+      <div class="drop-inner">
+        <div class="drop-icon">📁</div>
+        <h2>Drag a folder here</h2>
+        <p>Any folder on this computer — a college project, a folder of notes, a small
+           business's paperwork. Nothing is uploaded, and nothing is ever deleted.</p>
+        <div class="row" style="justify-content:center">
+          <button class="btn primary" id="chooseBtn">Choose a folder…</button>
+          <button class="btn" id="typeBtn">Type the address</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="typeCard" hidden>
+      <h3>Where is it?</h3>
+      <p class="muted">Paste the address of the folder, or type it. On Windows that looks like
+        <span class="pathline" style="display:inline-block;padding:2px 8px">C:\Users\you\Desktop\my project</span></p>
+      <div class="field">
+        <input type="text" id="pathInput" class="mono" placeholder="C:\Users\you\Desktop\my project" autocomplete="off">
+      </div>
+      <div class="row">
+        <button class="btn primary" id="pathGo">Open that folder</button>
+        <button class="btn ghost" id="pathBrowse">…or find it in a list</button>
+      </div>
+    </div>
+
+    <div class="card" id="recentCard" hidden>
+      <h3>Folders you have looked after before</h3>
+      <div class="list" id="recentList"></div>
+    </div>
+
+    <div class="card">
+      <h3>What nanoGit does, in one paragraph</h3>
+      <p class="muted">It writes your folder a README so it explains itself, adds a list of things to
+        leave out, and then keeps a copy of the folder every time you press a button called
+        <b>Save a checkpoint</b>. That copy lets you go back to how things were last Tuesday. When you
+        want to, one more button puts the whole thing on GitHub so you can share it or get it back if
+        your computer dies.</p>
+      <div class="divider"></div>
+      <div class="row">
+        <span class="chip">Checkpoint <b>= commit</b></span>
+        <span class="chip">History <b>= repository</b></span>
+        <span class="chip">Put it online <b>= push</b></span>
+        <span class="chip">Things to leave out <b>= .gitignore</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------- 2. look it over -->
+  <section class="panel" id="panel-look" hidden>
+    <div class="card highlight">
+      <div class="label">The folder you chose</div>
+      <h2 id="lookTitle">…</h2>
+      <div class="pathline" id="lookPath"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn ghost small" id="openFolder">Open it in my file manager</button>
+        <button class="btn ghost small" id="pickAnother">Pick a different folder</button>
+      </div>
+    </div>
+
+    <div class="card" id="factsCard">
+      <h3>What is in it</h3>
+      <div class="facts" id="facts"></div>
+      <div class="chips" id="breakdown" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card danger" id="secretsCard" hidden>
+      <h3>⚠︎ These look private</h3>
+      <p class="muted">They will be left out of the history, and never uploaded. If one of them is
+        harmless, you can delete its line from <b>.gitignore</b> afterwards.</p>
+      <div class="list" id="secretsList"></div>
+    </div>
+
+    <div class="card danger" id="bigCard" hidden>
+      <h3>⚠︎ These are very large</h3>
+      <p class="muted">GitHub refuses files over 100 MB, and a folder full of big files takes a long
+        time to upload. They will be left out.</p>
+      <div class="list" id="bigList"></div>
+    </div>
+
+    <div class="card" id="alreadyCard" hidden>
+      <h3>This folder is already being looked after</h3>
+      <p class="muted" id="alreadyText"></p>
+      <div class="row">
+        <button class="btn primary" id="goToKeep">Go to its checkpoints</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Which folder is this, in a few words?</h3>
+      <p class="muted">nanoGit has guessed. Change it if it is wrong — this becomes the first line of
+        the README and the name GitHub offers you later.</p>
+      <div class="two-col">
+        <div class="field">
+          <label for="nameInput">A name for it</label>
+          <input type="text" id="nameInput" placeholder="My project" maxlength="120">
+        </div>
+        <div class="field">
+          <label for="descInput">One line about what it is (optional)</label>
+          <input type="text" id="descInput" placeholder="My final year project on crop prices" maxlength="180">
+        </div>
+      </div>
+      <label class="switch"><input type="checkbox" id="rememberAuthor"> Remember the name I sign checkpoints with</label>
+    </div>
+
+    <div class="card highlight">
+      <h3>Ready?</h3>
+      <p class="muted" id="startExplain">One press writes the README, leaves the private things out, starts the
+        history and saves the first checkpoint. Nothing is deleted and nothing is uploaded.</p>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="startBtn">Keep this folder safe</button>
+      </div>
+    </div>
+
+    <div class="card" id="startLogCard" hidden>
+      <h3>What happened</h3>
+      <div class="log" id="startLog"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="afterStart">Good — show me its checkpoints</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------- 3. keep it safe -->
+  <section class="panel" id="panel-keep" hidden>
+    <div class="card highlight">
+      <div class="row">
+        <div style="flex:1;min-width:0">
+          <div class="label">Looked after</div>
+          <h2 id="keepTitle">…</h2>
+          <div class="pathline" id="keepPath"></div>
+        </div>
+      </div>
+      <div class="facts" id="keepFacts" style="margin-top:14px"></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <h3>Save a checkpoint</h3>
+        <p class="muted" id="changeSummary">…</p>
+        <div class="list" id="changeList"></div>
+        <div class="field" style="margin-top:12px">
+          <label for="messageInput">What did you change? (optional)</label>
+          <input type="text" id="messageInput" placeholder="Finished the report section" maxlength="160">
+        </div>
+        <button class="btn primary" id="checkpointBtn">Save a checkpoint</button>
+      </div>
+
+      <div class="card">
+        <h3>Put it online</h3>
+        <p class="muted" id="onlineTease">…</p>
+        <button class="btn" id="toOnline">Put this folder on GitHub</button>
+        <div class="divider"></div>
+        <h3>Open it</h3>
+        <p class="muted">A file manager window, showing the folder itself.</p>
+        <button class="btn ghost" id="openFolder2">Open the folder</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Its history</h3>
+      <p class="muted">Every checkpoint is a copy of the whole folder at that moment. Click
+        <b>Go back</b> to put the files back the way they were — your latest work is saved first, so
+        nothing is lost by looking.</p>
+      <div id="historyWrap"><p class="muted">Loading…</p></div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------- 4. put it online -->
+  <section class="panel" id="panel-online" hidden>
+    <div class="card" id="readyCard">
+      <h3>Putting this folder on GitHub</h3>
+      <p class="muted" id="readyText">Checking…</p>
+      <div id="readyExtra"></div>
+    </div>
+
+    <div class="card highlight" id="publishCard" hidden>
+      <h3>One press</h3>
+      <div class="two-col">
+        <div class="field">
+          <label for="repoName">The name it will have online</label>
+          <input type="text" id="repoName" class="mono" maxlength="100">
+        </div>
+        <div class="field">
+          <label for="repoDesc">One line describing it (optional)</label>
+          <input type="text" id="repoDesc" maxlength="180">
+        </div>
+      </div>
+      <label class="switch"><input type="checkbox" id="repoPrivate" checked> Keep it private — only I can see it</label>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="publishBtn">Create it and send everything up</button>
+        <button class="btn ghost" id="manualBtn">Show me the steps by hand</button>
+      </div>
+    </div>
+
+    <div class="card" id="publishLogCard" hidden>
+      <h3>What happened</h3>
+      <div class="log" id="publishLog"></div>
+      <div id="publishLink" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h3>What "private" means here</h3>
+      <p class="muted">A private repository can only be seen by you. A public one can be read by
+        anybody on the internet, including anything you forgot was in the folder — which is why
+        private is the default, and why nanoGit stops if it finds something that looks like a
+        password.</p>
+    </div>
+  </section>
+</main>
+
+<!-- ------------------------------------------------------------- picker modal -->
+<div class="modal-back" id="browserBack" hidden>
+  <div class="modal">
+    <h2>Find your folder</h2>
+    <p class="muted">Click a folder to go into it. When you are looking at the right one, press <b>Use this folder</b>.</p>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="browser" id="browser"></div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn primary" id="useFolder">Use this folder</button>
+      <div class="grow"></div>
+      <button class="btn ghost" id="browserClose">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ----------------------------------------------------------- settings modal -->
+<div class="modal-back" id="settingsBack" hidden>
+  <div class="modal">
+    <h2>Settings</h2>
+    <p class="muted">The name and address written on every checkpoint. Only used to say who saved it —
+      it is not an account, and nothing is sent anywhere.</p>
+    <div class="field">
+      <label for="setName">Your name</label>
+      <input type="text" id="setName" maxlength="80" placeholder="Your name">
+    </div>
+    <div class="field">
+      <label for="setEmail">Your email (a made-up one is fine)</label>
+      <input type="text" id="setEmail" maxlength="120" placeholder="you@localhost">
+      <span class="faint">If you put this online, GitHub can hide your real address — use
+        <span class="sha">your-username@users.noreply.github.com</span>.</span>
+    </div>
+    <div class="divider"></div>
+    <p class="faint" id="dataDirLine"></p>
+    <div class="row">
+      <button class="btn primary" id="saveSettings">Save</button>
+      <div class="grow"></div>
+      <button class="btn ghost" id="settingsClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# nanoGit needs nothing at all.
+#
+# The whole app — the page, the server, the folder survey and the README writer —
+# runs on the Python standard library. This file exists so that "is there
+# anything to install?" has a visible answer: no.
+#
+# Python 3.9 or newer. That is the entire requirement.
+#
+# The one thing nanoGit does need is the git program, because it drives the real
+# thing rather than pretending to be one. It is already on macOS and most Linux
+# machines, and on Windows it comes from https://git-scm.com/downloads.
+# The app says all of this in one sentence if it cannot find it.
