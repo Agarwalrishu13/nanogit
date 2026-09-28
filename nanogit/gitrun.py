@@ -403,6 +403,27 @@ class Git:
                 item["deleted"] = int(deleted) if deleted.isdigit() else None
         return sorted(items.values(), key=lambda item: item["path"])
 
+    def has_file_at(self, folder, sha: str, path: str) -> bool:
+        """True when one file exists inside a checkpoint."""
+        return self.run("cat-file", "-e", "%s:%s" % (sha, path), cwd=folder).ok
+
+    def restore_file(self, folder, sha: str, path: str) -> Result:
+        """Put one file back the way a checkpoint had it.
+
+        Done by git itself rather than by copying bytes around, so the result
+        obeys the machine's own line-ending and attribute rules — identical to
+        what git would hand somebody who checked the file out by hand.
+        """
+        if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha or ""):
+            return Result(("checkout",), 128, "", "That is not a version nanoGit recognises.")
+        return self.run("checkout", sha, "--", path, cwd=folder, timeout=180)
+
+    def file_differs(self, folder, sha: str, path: str) -> bool:
+        """True when a file on disk differs from its checkpoint version — judged
+        by git, so line-ending conversions on Windows do not count as a change."""
+        result = self.run("diff", "--quiet", sha, "--", path, cwd=folder)
+        return not result.ok
+
     # -- the gentle undo ---------------------------------------------------
     def reset_soft(self, folder) -> Result:
         """Un-save the last checkpoint. The files themselves stay exactly where

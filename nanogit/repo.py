@@ -512,9 +512,9 @@ def bring_back(git: Git, folder, sha: str, relative: str) -> dict:
     """Put one file back the way a checkpoint had it.
 
     If something unsaved is sitting in the folder it is checkpointed first, so
-    this button, like every other button here, cannot lose work. The file is
-    copied out of the history byte for byte — a picture comes back as the same
-    picture, not a re-typed one.
+    this button, like every other button here, cannot lose work. The restore
+    itself is done by git, so a picture comes back as the same picture and a
+    text file obeys the machine's own line-ending rules.
     """
     target_rel = _safe_relative(relative)
     if not target_rel:
@@ -525,21 +525,16 @@ def bring_back(git: Git, folder, sha: str, relative: str) -> dict:
     if not known:
         return {"ok": False, "error": "That checkpoint is not in this folder's history."}
     full = known[0]
-    found, content = git.file_at(folder, full, target_rel)
-    if not found:
+    if not git.has_file_at(folder, full, target_rel):
         return {"ok": False, "error": "“%s” is not inside that checkpoint." % target_rel}
 
     target = Path(folder) / target_rel
-    if target.is_file():
-        try:
-            if target.read_bytes() == content:
-                return {
-                    "ok": True,
-                    "steps": ["“%s” is already exactly the version from that checkpoint." % target_rel],
-                    "status": status(git, folder),
-                }
-        except OSError:
-            pass
+    if target.is_file() and not git.file_differs(folder, full, target_rel):
+        return {
+            "ok": True,
+            "steps": ["“%s” is already exactly the version from that checkpoint." % target_rel],
+            "status": status(git, folder),
+        }
 
     steps: list[str] = []
     if git.status(folder):
@@ -548,11 +543,9 @@ def bring_back(git: Git, folder, sha: str, relative: str) -> dict:
             return {"ok": False, "error": safety.get("error", "Could not save the current state first."), "steps": steps}
         steps.extend(safety.get("steps", []))
 
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-    except OSError as exc:
-        return {"ok": False, "error": "Could not write the file back: %s" % exc, "steps": steps}
+    restored = git.restore_file(folder, full, target_rel)
+    if not restored.ok:
+        return {"ok": False, "error": restored.clean_error(), "steps": steps}
 
     entry = next((item for item in git.log(folder, limit=500) if item["sha"] == full), {})
     steps.append(
