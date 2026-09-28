@@ -24,6 +24,9 @@ DEFAULT_SETTINGS = {
     # Where "open the folder" and "publish" default to.
     "last_folder": "",
     "publish_private": True,
+    # Minutes between checkpoints nanoGit saves by itself. 0 means never —
+    # nothing happens automatically unless the person asked for it.
+    "auto_checkpoint_minutes": 0,
 }
 
 MAX_RECENT = 12

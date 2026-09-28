@@ -27,8 +27,25 @@ jobs:
       - name: Show what this machine has
         run: python -m nanogit doctor
 
+      # The suite runs with -v output captured, so a failure can also be
+      # surfaced as check annotations — the failing tests are then visible
+      # from the PR's checks panel without opening the raw log.
       - name: Run the test suite
-        run: python -m unittest discover tests -v
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover tests -v > unittest-output.txt 2>&1
+          code=$?
+          tail -30 unittest-output.txt
+          if [ $code -ne 0 ]; then
+            grep -E "^(FAIL|ERROR):" unittest-output.txt | head -10 | while read -r line; do
+              echo "::error::$line"
+            done
+            grep -E "^(AssertionError|.*Error)" unittest-output.txt | grep -v "^Traceback" | head -5 | while read -r line; do
+              echo "::error::  $line"
+            done
+          fi
+          exit $code
 
       - name: Make a repository out of this checkout, end to end
         shell: bash

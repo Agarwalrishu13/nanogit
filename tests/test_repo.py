@@ -517,6 +517,372 @@ class GitMissingSentenceTests(unittest.TestCase):
         self.assertIn("install", text.lower())
 
 
+class CheckpointFilesTests(RepoTestCase):
+    def setUp(self):
+        super().setUp()
+        self.write("a.txt", "one\n")
+        self.write("sub/b.txt", "two\n")
+        self.start()
+        self.first = self.git.log(self.root)[0]
+        self.write("a.txt", "one\nchanged\n")
+        self.write("c.txt", "three\n")
+        repo.checkpoint(self.git, str(self.root), "second")
+        self.second = self.git.log(self.root)[0]
+
+    def test_looking_inside_a_checkpoint_lists_everything_it_holds(self):
+        inside = repo.checkpoint_files(self.git, str(self.root), self.first["sha"])
+        self.assertTrue(inside["ok"])
+        paths = [row["path"] for row in inside["files"]]
+        self.assertIn("a.txt", paths)
+        self.assertIn("sub/b.txt", paths)
+        self.assertNotIn("c.txt", paths)
+
+    def test_a_file_what_changed_sentence_comes_along(self):
+        inside = repo.checkpoint_files(self.git, str(self.root), self.second["sha"])
+        self.assertEqual(inside["what"]["files"], 2)
+        self.assertEqual(inside["what"]["counts"].get("new"), 1)
+        self.assertEqual(inside["what"]["counts"].get("changed"), 1)
+        self.assertIn("+", inside["what"]["text"])
+
+    def test_gone_now_flags_what_the_folder_no_longer_has(self):
+        (self.root / "sub" / "b.txt").unlink()
+        repo.checkpoint(self.git, str(self.root), "removed b")
+        inside = repo.checkpoint_files(self.git, str(self.root), self.first["sha"])
+        by_path = {row["path"]: row for row in inside["files"]}
+        self.assertTrue(by_path["sub/b.txt"]["gone_now"])
+        self.assertFalse(by_path["a.txt"]["gone_now"])
+
+    def test_a_made_up_checkpoint_is_refused_without_throwing(self):
+        inside = repo.checkpoint_files(self.git, str(self.root), "; rm -rf /")
+        self.assertFalse(inside["ok"])
+        self.assertIn("not a version", inside["error"])
+
+    def test_a_checkpoint_from_somewhere_else_is_refused(self):
+        other = self.base / "elsewhere"
+        other.mkdir()
+        git2 = gitrun.Git(GIT)
+        git2.init(other)
+        git2.set_identity(other, "T", "t@localhost")
+        (other / "x.txt").write_text("x\n")
+        git2.commit_all(other, "x")
+        foreign = git2.log(other)[0]
+        inside = repo.checkpoint_files(self.git, str(self.root), foreign["sha"])
+        self.assertFalse(inside["ok"])
+        self.assertIn("not in this folder", inside["error"])
+
+    def test_the_history_can_be_asked_for_what_changed(self):
+        result = repo.history(self.git, str(self.root), with_what=True)
+        self.assertTrue(result["entries"][0]["what"]["text"])
+        plain = repo.history(self.git, str(self.root))
+        self.assertEqual(plain["entries"][0]["what"], {})
+
+
+class BringBackTests(RepoTestCase):
+    def setUp(self):
+        super().setUp()
+        self.write("photo.bin", "original-bytes\n")
+        self.start()
+        self.first = self.git.log(self.root)[0]
+
+    def test_a_deleted_file_comes_back_byte_for_byte(self):
+        blob = bytes(range(256))
+        (self.root / "photo.bin").write_bytes(blob)
+        repo.checkpoint(self.git, str(self.root), "binary version")
+        saved = self.git.log(self.root)[0]
+        (self.root / "photo.bin").unlink()
+        result = repo.bring_back(self.git, str(self.root), saved["sha"], "photo.bin")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((self.root / "photo.bin").read_bytes(), blob)
+        self.assertIn("Brought back", " ".join(result["steps"]))
+
+    def test_unsaved_work_is_checkpointed_before_a_file_is_replaced(self):
+        repo.checkpoint(self.git, str(self.root))  # everything saved
+        self.write("photo.bin", "work in progress\n")
+        result = repo.bring_back(self.git, str(self.root), self.first["sha"], "photo.bin")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((self.root / "photo.bin").read_text(encoding="utf-8"), "original-bytes\n")
+        steps = " ".join(result["steps"])
+        self.assertIn("Saved a checkpoint", steps)   # the current work, saved first
+        self.assertIn("Brought back", steps)
+        messages = {entry["message"] for entry in self.git.log(self.root)}
+        self.assertTrue(any("automatically before bringing back photo.bin" in m for m in messages), messages)
+
+    def test_a_file_that_already_matches_is_not_touched(self):
+        result = repo.bring_back(self.git, str(self.root), self.first["sha"], "photo.bin")
+        self.assertTrue(result["ok"])
+        self.assertIn("already exactly", result["steps"][0])
+
+    def test_a_path_traversal_is_refused(self):
+        self.write("outside.txt", "should never be overwritten\n")
+        (self.base / "outside-target").mkdir()
+        for evil in ("../outside.txt", "..\\outside.txt", "/etc/passwd", "sub/../../outside.txt"):
+            result = repo.bring_back(self.git, str(self.root), self.first["sha"], evil)
+            self.assertFalse(result["ok"], evil)
+        self.assertEqual((self.root / "outside.txt").read_text(encoding="utf-8"), "should never be overwritten\n")
+
+    def test_a_file_the_checkpoint_does_not_have_is_named_in_the_answer(self):
+        result = repo.bring_back(self.git, str(self.root), self.first["sha"], "never-existed.txt")
+        self.assertFalse(result["ok"])
+        self.assertIn("never-existed.txt", result["error"])
+
+    def test_a_made_up_checkpoint_is_refused(self):
+        result = repo.bring_back(self.git, str(self.root), "zzzz", "photo.bin")
+        self.assertFalse(result["ok"])
+
+
+class TakeBackTests(RepoTestCase):
+    def setUp(self):
+        super().setUp()
+        self.write("a.txt", "one\n")
+        self.start()
+
+    def test_taking_back_unsaves_the_checkpoint_but_never_the_work(self):
+        self.write("b.txt", "two\n")
+        repo.checkpoint(self.git, str(self.root), "added b")
+        self.assertEqual(self.git.count_checkpoints(self.root), 2)
+        result = repo.take_back(self.git, str(self.root))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.git.count_checkpoints(self.root), 1)
+        self.assertTrue((self.root / "b.txt").is_file())  # the promise: nothing is deleted
+        paths = [change["path"] for change in result["status"]["changes"]]
+        self.assertIn("b.txt", paths)
+        self.assertIn("added b", result["steps"][0])
+
+    def test_the_first_checkpoint_is_the_floor(self):
+        result = repo.take_back(self.git, str(self.root))
+        self.assertFalse(result["ok"])
+        self.assertIn("first checkpoint", result["error"])
+        self.assertEqual(self.git.count_checkpoints(self.root), 1)
+
+    def test_an_interrupted_save_is_tidied_first(self):
+        (self.root / ".git" / "index.lock").write_text("")
+        result = repo.take_back(self.git, str(self.root))
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["interrupted"])
+
+    def test_an_untracked_folder_is_refused_plainly(self):
+        plain = self.base / "plain"
+        plain.mkdir()
+        result = repo.take_back(self.git, str(plain))
+        self.assertFalse(result["ok"])
+
+
+class TidyUpTests(RepoTestCase):
+    def test_nothing_to_tidy_is_a_fine_answer(self):
+        self.write("a.txt")
+        self.start()
+        result = repo.tidy_up(self.git, str(self.root))
+        self.assertTrue(result["ok"])
+        self.assertIn("nothing to tidy", result["steps"][0])
+
+    def test_the_interrupted_save_is_reported_and_cleared(self):
+        self.write("a.txt")
+        self.start()
+        (self.root / ".git" / "index.lock").write_text("")
+        self.assertTrue(repo.status(self.git, str(self.root))["interrupted"])
+        result = repo.tidy_up(self.git, str(self.root))
+        self.assertTrue(result["ok"])
+        self.assertFalse((self.root / ".git" / "index.lock").exists())
+        # Everything else is exactly as it was.
+        self.assertEqual((self.root / "a.txt").read_text(encoding="utf-8"), "hello\n")
+        self.assertFalse(repo.status(self.git, str(self.root))["interrupted"])
+
+
+class CopyHistoryTests(RepoTestCase):
+    def test_the_whole_history_lands_in_one_file_and_verifies(self):
+        self.write("a.txt", "one\n")
+        self.start()
+        self.write("b.txt", "two\n")
+        repo.checkpoint(self.git, str(self.root), "two")
+        stick = self.base / "usb-stick"
+        stick.mkdir()
+        result = repo.copy_history(self.git, str(self.root), str(stick))
+        self.assertTrue(result["ok"], result)
+        bundle = Path(result["file"])
+        self.assertTrue(bundle.is_file())
+        self.assertIn(".bundle", bundle.name)
+        self.assertIn("2 checkpoints", " ".join(result["steps"]))
+        self.assertTrue(self.git.bundle_verify(self.root, bundle).ok)
+
+    def test_a_copy_inside_the_folder_it_copies_is_refused(self):
+        self.write("a.txt")
+        self.start()
+        result = repo.copy_history(self.git, str(self.root), str(self.root))
+        self.assertFalse(result["ok"])
+        self.assertIn("outside", result["error"])
+
+    def test_no_history_means_nothing_to_copy(self):
+        (self.root / "a.txt").write_text("x")
+        result = repo.copy_history(self.git, str(self.root), str(self.base))
+        self.assertFalse(result["ok"])
+        self.assertIn("first", result["error"])
+
+    def test_a_nowhere_destination_is_refused(self):
+        self.write("a.txt")
+        self.start()
+        result = repo.copy_history(self.git, str(self.root), str(self.base / "nowhere"))
+        self.assertFalse(result["ok"])
+        self.assertIn("no folder", result["error"])
+
+    def test_no_destination_at_all_is_refused(self):
+        self.write("a.txt")
+        self.start()
+        result = repo.copy_history(self.git, str(self.root), "")
+        self.assertFalse(result["ok"])
+
+
+class OnlineCopyTests(RepoTestCase):
+    """Get the latest version, against a bare folder standing in for GitHub."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("a.txt", "one\n")
+        self.start()
+        self.bare = self.base / "remote.git"
+        self.assertTrue(self.git.run("init", "--bare", "-b", "main", str(self.bare), cwd=self.base).ok)
+        self.git.track_remote(self.root, str(self.bare))
+        self.assertTrue(self.git.run("push", "-u", "origin", "main", cwd=self.root).ok)
+
+    def push_from_elsewhere(self, name="b.txt", text="from elsewhere\n"):
+        other = self.base / "other"
+        self.assertTrue(self.git.run("clone", str(self.bare), str(other), cwd=self.base).ok)
+        self.git.set_identity(other, "Other", "other@localhost")
+        (other / name).write_text(text)
+        self.assertTrue(self.git.commit_all(other, "from the other computer").ok)
+        self.assertTrue(self.git.run("push", "origin", "main", cwd=other).ok)
+
+    def test_a_folder_without_online_home_is_answered_kindly(self):
+        plain = self.base / "plain"
+        plain.mkdir()
+        repo.start(self.git, str(plain))
+        check = repo.online_check(self.git, str(plain))
+        self.assertIn("not been put online", check["explain"])
+        result = repo.get_latest(self.git, str(plain))
+        self.assertFalse(result["ok"])
+
+    def test_matching_copies_are_reported(self):
+        check = repo.online_check(self.git, str(self.root))
+        self.assertTrue(check["reachable"])
+        self.assertEqual(check["incoming"], 0)
+        self.assertEqual(check["outgoing"], 0)
+        self.assertIn("matches", check["explain"])
+
+    def test_something_waiting_online_comes_down_on_request(self):
+        self.push_from_elsewhere()
+        check = repo.online_check(self.git, str(self.root))
+        self.assertEqual(check["incoming"], 1)
+        result = repo.get_latest(self.git, str(self.root))
+        self.assertTrue(result["ok"], result)
+        self.assertTrue((self.root / "b.txt").is_file())
+        self.assertIn("Brought down 1 checkpoint", " ".join(result["steps"]))
+
+    def test_unsaved_work_stops_the_download_with_an_explanation(self):
+        self.push_from_elsewhere()
+        self.write("dirty.txt", "unsaved\n")
+        result = repo.get_latest(self.git, str(self.root))
+        self.assertFalse(result["ok"])
+        self.assertIn("Save a checkpoint first", result["error"])
+        self.assertFalse((self.root / "b.txt").exists())  # left exactly as it was
+
+    def test_both_sides_moving_is_a_refusal_not_a_mess(self):
+        self.push_from_elsewhere()
+        self.write("c.txt", "local move\n")
+        self.assertTrue(self.git.commit_all(self.root, "local move").ok)
+        check = repo.online_check(self.git, str(self.root))
+        self.assertTrue(check["incoming"] and check["outgoing"])
+        self.assertIn("different", check["explain"])
+        result = repo.get_latest(self.git, str(self.root))
+        self.assertFalse(result["ok"])
+        self.assertIn("left as it is", result["error"])
+
+    def test_already_up_to_date_is_a_fine_answer(self):
+        result = repo.get_latest(self.git, str(self.root))
+        self.assertTrue(result["ok"])
+        self.assertIn("up to date", result["steps"][0])
+
+
+class AutoCheckTests(RepoTestCase):
+    def make_old(self, days_ago_iso="2020-01-01T00:00:00+00:00"):
+        """Rewrite the newest checkpoint's date, so the saver sees an overdue folder."""
+        import subprocess
+        import os as _os
+        env = dict(_os.environ, GIT_COMMITTER_DATE=days_ago_iso)
+        done = subprocess.run(
+            ["git", "commit", "--amend", "--no-edit", "-q", "--allow-empty", "--date", days_ago_iso],
+            cwd=str(self.root), env=env, capture_output=True, text=True,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_it_never_runs_unless_asked(self):
+        self.write("a.txt")
+        self.start()
+        self.write("b.txt", "two\n")
+        result = repo.auto_check_once(self.git)
+        self.assertFalse(result["saved"])
+        self.assertEqual(self.git.count_checkpoints(self.root), 1)
+
+    def test_an_overdue_folder_with_changes_gets_saved(self):
+        self.write("a.txt")
+        self.start()
+        self.make_old()
+        store.save_settings({"auto_checkpoint_minutes": 1440, "last_folder": str(self.root)})
+        self.write("b.txt", "two\n")
+        result = repo.auto_check_once(self.git)
+        self.assertTrue(result["saved"], result)
+        self.assertEqual(self.git.count_checkpoints(self.root), 2)
+        self.assertIn("Automatic checkpoint", self.git.log(self.root)[0]["message"])
+
+    def test_a_recently_saved_folder_is_left_alone(self):
+        self.write("a.txt")
+        self.start()
+        store.save_settings({"auto_checkpoint_minutes": 1440, "last_folder": str(self.root)})
+        self.write("b.txt", "two\n")
+        result = repo.auto_check_once(self.git)
+        self.assertFalse(result["saved"])
+        self.assertEqual(result["why"], "saved recently enough")
+
+    def test_nothing_changed_means_nothing_saved(self):
+        self.write("a.txt")
+        self.start()
+        self.make_old()
+        store.save_settings({"auto_checkpoint_minutes": 1440, "last_folder": str(self.root)})
+        result = repo.auto_check_once(self.git)
+        self.assertFalse(result["saved"])
+        self.assertEqual(result["why"], "nothing changed")
+
+    def test_an_interrupted_save_means_it_stays_quiet(self):
+        self.write("a.txt")
+        self.start()
+        self.make_old()
+        store.save_settings({"auto_checkpoint_minutes": 1440, "last_folder": str(self.root)})
+        (self.root / ".git" / "index.lock").write_text("")
+        result = repo.auto_check_once(self.git)
+        self.assertFalse(result["saved"])
+
+    def test_a_folder_that_is_not_tracked_is_not_started_by_it(self):
+        plain = self.base / "plain"
+        plain.mkdir()
+        (plain / "x.txt").write_text("x")
+        store.save_settings({"auto_checkpoint_minutes": 1440, "last_folder": str(plain)})
+        result = repo.auto_check_once(self.git)
+        self.assertFalse(result["saved"])
+        self.assertFalse((plain / ".git").exists())
+
+
+class StatusExtrasTests(RepoTestCase):
+    def test_the_fresh_fields_are_always_present(self):
+        state = repo.status(self.git, str(self.root))
+        for key in ("last_when_text", "days_since_last", "interrupted"):
+            self.assertIn(key, state)
+
+    def test_a_saved_folder_says_when_in_words(self):
+        self.write("a.txt")
+        self.start()
+        state = repo.status(self.git, str(self.root))
+        self.assertIn("today", state["last_when_text"])
+        self.assertEqual(state["days_since_last"], 0)
+
+
 class LeaveOutTests(RepoTestCase):
     def test_a_pattern_can_be_added_after_the_fact(self):
         self.write("a.txt")

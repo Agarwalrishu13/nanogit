@@ -13,7 +13,7 @@ version**, **Put it online**.
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9+-58a6ff.svg)]()
 [![dependencies](https://img.shields.io/badge/required%20deps-0-f0883e.svg)]()
-[![tests](https://img.shields.io/badge/tests-224%20passing-3ddc97.svg)]()
+[![tests](https://img.shields.io/badge/tests-284%20passing-3ddc97.svg)]()
 
 </div>
 
@@ -22,12 +22,24 @@ version**, **Put it online**.
 > **Part of [the nano family](https://github.com/Agarwalrishu13/nano)** — eleven offline-first apps for people who do not code. This is the map of the whole project.
 
 
-## What's new in 0.2
+## What's new in 1.0
 
-- **See what will be saved, before saving.** The checkpoint card now shows the
-  real changed lines of each text file — additions and removals — before you
-  press the button. New files show their first lines; pictures just say they
-  changed. Looking changes nothing.
+- **See what will be saved, before saving.** The checkpoint card shows the real
+  changed lines of each text file — additions in green, removals in red —
+  before you press the button. Looking changes nothing.
+- **Bring back a file.** Deleted it, or broke it since the last save? Open any
+  checkpoint, pick the file marked *gone now*, and it comes back byte for byte.
+- **Take back the last checkpoint.** The newest checkpoint is un-saved, the
+  work stays on disk. The first checkpoint is the floor, always.
+- **Copy the history to a file.** The whole history as one `.bundle` — for a
+  USB stick or a second computer, verified to open, no account needed.
+- **Get the latest version.** One press brings down what arrived online from
+  another computer, with three kind refusals when it would not be clean.
+- **Save by itself.** Optional hourly or daily checkpoints, only when something
+  changed. Plus a gentle nudge when a checkpoint is overdue.
+- **Tidy it up.** One click clears the mark git leaves when a save is stopped
+  halfway — and only that mark.
+- The page is lighter and calmer throughout. Full story in [CHANGELOG.md](CHANGELOG.md).
 
 ## What this is, in one paragraph
 
@@ -70,11 +82,18 @@ python -m nanogit --port 9000 --no-browser
 | **Point me at a folder** | A native folder window, an in-page browser, or drag a folder in — nanoGit finds it by name. | Nothing. Nothing is read yet beyond counting files. |
 | **Keep this folder safe** | Writes a README and a .gitignore in plain words, starts the history, saves a first checkpoint. | If the folder lives inside another tracked folder, it refuses and explains why. |
 | **Save a checkpoint** | Everything in the folder, exactly as it is now, under the words you type. Your words are kept as you typed them. | Saving with nothing new is harmless — it says so. |
+| **Save by itself** | Optional: a checkpoint once an hour or once a day, while the app is open — only if something changed. | It never starts tracking a folder you have not asked about. |
+| **Look inside** | Shows every file a checkpoint holds, and what that checkpoint changed, in words: *"3 files: 1 new, 2 changed · +45 −12"*. | Nothing. It only reads. |
+| **Bring it back** | Copies one file out of a checkpoint — deleted, broken, replaced by accident — byte for byte. | Unsaved work is checkpointed first, so even this cannot lose anything. |
+| **Take back the last checkpoint** | Un-saves the newest checkpoint. The work in it stays on disk as unsaved changes. | The first checkpoint is the floor; it always stays. |
 | **Go back to this version** | The folder becomes that checkpoint again. Nothing is lost: newer versions stay in the history. | Nothing is deleted, ever. |
+| **Copy the history to a file** | The whole history as one `.bundle` file — for a USB stick or a second computer. Opens with ordinary git. | It refuses to put the copy inside the folder it is copying. |
 | **Things to leave out** | Files that look private (keys, `.env`, databases) stay on your computer, with an explanation for each. | They are listed *before* anything goes online, not after. |
-| **Put it online** | Makes a **private** GitHub repository and sends the folder up, using the `gh` tool if you have it. | Without `gh` it says exactly where to get it, and keeping the folder safe still works. |
+| **Put it online** | Makes a **private** GitHub repository and sends the folder up, using the `gh` tool if you have it. Big files over GitHub's limit are caught *before* upload, not after. | Without `gh` it says exactly where to get it, and keeping the folder safe still works. |
+| **Get the latest version** | Brings down checkpoints waiting online — after three kind refusals: not online yet, unsaved work in the folder, or both sides moved at once. | In each refusal everything is left exactly as it was, with a sentence saying why. |
+| **Tidy it up** | When a save is interrupted mid-way, git refuses to work until its "still working" note is removed. This button removes just the note. | No file of yours is touched — only git's own note. |
 
-### The seven words it uses instead of git's
+### The words it uses instead of git's
 
 | nanoGit says | git calls it |
 |---|---|
@@ -83,6 +102,10 @@ python -m nanogit --port 9000 --no-browser
 | Checkpoint | commit |
 | History | repository |
 | Go back to this version | checkout |
+| Bring it back | show *sha*:*path* |
+| Take back the last checkpoint | reset --soft |
+| Get the latest version | fetch + merge --ff-only |
+| Copy the history to a file | bundle |
 | Put it online | push |
 | Things to leave out | .gitignore |
 
@@ -101,6 +124,13 @@ python -m nanogit --port 9000 --no-browser
   are skipped when *looking*, never when they are exactly what you asked for.
 - **Publishing is private by default**, and it stops to tell you what looks
   private before anything is uploaded — never after.
+- **A deleted file is a solvable problem.** *Look inside* a checkpoint, pick
+  the file marked *gone now*, press *Bring it back*. It comes back byte for
+  byte — and your current work is checkpointed first, because this app does
+  not know how to lose things.
+- **The history fits in your pocket.** *Copy the history to a file* writes the
+  whole thing as one `.bundle`. No account, no internet — and if you ever need
+  it back, ordinary git clones it.
 
 ---
 

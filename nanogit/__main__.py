@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 from pathlib import Path
 
 from . import APP_NAME, TAGLINE, __version__, native_picker, repo, store, survey
@@ -65,17 +66,20 @@ def _doctor() -> int:
             print("        %s" % item["path"])
         print()
 
-    print("  The seven words nanoGit uses instead of git's")
+    print("  The words nanoGit uses instead of git's")
     for plain, git_word in [
         ("Checkpoint", "commit"),
         ("History", "repository"),
         ("Go back to this version", "checkout"),
+        ("Bring it back", "show sha:path"),
+        ("Take back the last checkpoint", "reset --soft"),
         ("Save a checkpoint", "add + commit"),
+        ("Get the latest version", "fetch + merge --ff-only"),
+        ("Copy the history to a file", "bundle"),
         ("Put it online", "push"),
-        ("Send it up", "push to origin"),
         ("Things to leave out", ".gitignore"),
     ]:
-        print("        %-26s %s" % (plain, git_word))
+        print("        %-30s %s" % (plain, git_word))
     print()
     return 0
 
@@ -114,6 +118,12 @@ def main(argv: list[str] | None = None) -> int:
         return _doctor()
 
     from .server import create_app
+
+    # The 'save by itself' helper, for whoever turned it on. It only ever
+    # touches the folder most recently looked after, and only after the wait
+    # they chose — and it stops existing the moment this window closes.
+    stop_autosave = threading.Event()
+    threading.Thread(target=repo.auto_loop, args=(stop_autosave,), daemon=True, name="nanogit-autosave").start()
 
     app = create_app()
     try:
