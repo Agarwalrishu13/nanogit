@@ -315,6 +315,148 @@ class Git:
             return self.run("remote", "set-url", "origin", url, cwd=folder)
         return self.run("remote", "add", "origin", url, cwd=folder)
 
+    # -- looking inside checkpoints ---------------------------------------
+    def files_at(self, folder, sha: str) -> list[str]:
+        """Every file the history knows about at a checkpoint."""
+        if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha or ""):
+            return []
+        result = self.run("ls-tree", "-r", "--name-only", "-z", sha, cwd=folder)
+        if not result.ok:
+            return []
+        return sorted(part for part in result.out.split("\0") if part)
+
+    def file_at(self, folder, sha: str, path: str) -> tuple:
+        """One file's content at a checkpoint, byte for byte (binary-safe).
+
+        Kept out of run() on purpose: text decoding would corrupt a JPEG or a
+        spreadsheet, so this one bypasses it and hands back raw bytes.
+        """
+        command = [self.exe, "-c", "core.quotepath=false", "-c", "color.ui=false",
+                   "show", "%s:%s" % (sha, path)]
+        try:
+            done = subprocess.run(
+                command,
+                cwd=str(folder) if folder else None,
+                env=_env(),
+                capture_output=True,
+                timeout=DEFAULT_TIMEOUT,
+                shell=False,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return False, b""
+        if done.returncode != 0:
+            return False, done.stderr or b""
+        return True, done.stdout
+
+    def change_list(self, folder, sha: str) -> list:
+        """What one checkpoint changed: each file, what happened to it, and
+        how many lines came and went. The root checkpoint counts too, thanks
+        to ``--root`` — its 'changes' are simply everything it added."""
+        if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha or ""):
+            return []
+        status = self.run("diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", "-M", sha, cwd=folder)
+        counts = self.run("diff-tree", "--root", "--no-commit-id", "--numstat", "-r", "-z", "-M", sha, cwd=folder)
+        items = {}
+        if status.ok:
+            # With -z the records are: LETTER\0 path\0 … (renames: R100\0 old\0 new\0)
+            tokens = [token for token in status.out.split("\0") if token]
+            index = 0
+            while index < len(tokens):
+                code = tokens[index]
+                index += 1
+                letter = code[:1].upper()
+                if letter in ("R", "C"):
+                    if index + 1 >= len(tokens):
+                        break
+                    old, path = tokens[index], tokens[index + 1]
+                    index += 2
+                    items[path] = {"path": path, "old": old, "kind": "renamed"}
+                else:
+                    if index >= len(tokens):
+                        break
+                    path = tokens[index]
+                    index += 1
+                    kind = {"A": "new", "D": "gone", "M": "changed", "T": "changed"}.get(letter, "changed")
+                    items[path] = {"path": path, "old": "", "kind": kind}
+        if counts.ok:
+            # With -z the records are: ADDED\tDELETED\tPATH\0 ("-" counts are binary
+            # files). A rename's PATH comes back empty, followed by old\0new instead.
+            tokens = counts.out.split("\0")
+            index = 0
+            while index < len(tokens):
+                record = tokens[index].strip("\n")
+                index += 1
+                parts = record.split("\t")
+                if len(parts) < 3:
+                    continue
+                added, deleted, path = parts[0], parts[1], "\t".join(parts[2:])
+                if not path:
+                    # Rename record: the old and new names occupy the next two tokens.
+                    if index + 1 >= len(tokens):
+                        continue
+                    old, path = tokens[index], tokens[index + 1]
+                    index += 2
+                    if not path:
+                        continue
+                item = items.setdefault(path, {"path": path, "old": "", "kind": "changed"})
+                item["added"] = int(added) if added.isdigit() else None
+                item["deleted"] = int(deleted) if deleted.isdigit() else None
+        return sorted(items.values(), key=lambda item: item["path"])
+
+    # -- the gentle undo ---------------------------------------------------
+    def reset_soft(self, folder) -> Result:
+        """Un-save the last checkpoint. The files themselves stay exactly where
+        they are — this only moves the history's bookmark back by one."""
+        return self.run("reset", "--soft", "HEAD~1", cwd=folder)
+
+    # -- one file with the whole history in it ------------------------------
+    def bundle(self, folder, target) -> Result:
+        """Write the whole history as one file, using git's own bundle format."""
+        return self.run("bundle", "create", str(target), "--all", cwd=folder, timeout=180)
+
+    def bundle_verify(self, folder, target) -> Result:
+        """Open the file back up and check it really holds the history."""
+        return self.run("bundle", "verify", str(target), cwd=folder, timeout=120)
+
+    # -- the mark git leaves when a save was stopped halfway ----------------
+    def interrupted_lock(self, folder) -> str:
+        """The lock file git leaves behind when it was stopped mid-save, or ''."""
+        path = Path(folder) / ".git" / "index.lock"
+        try:
+            return str(path) if path.is_file() else ""
+        except OSError:
+            return ""
+
+    def clear_interrupted_lock(self, folder) -> bool:
+        """Remove that lock. Only the lock itself is touched — never a file."""
+        path = Path(folder) / ".git" / "index.lock"
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            return False
+
+    # -- talking to the online copy ----------------------------------------
+    def fetch(self, folder) -> Result:
+        """Ask the online copy what it knows, without changing any files."""
+        return self.run("fetch", "origin", cwd=folder, timeout=PUSH_TIMEOUT)
+
+    def incoming(self, folder) -> int:
+        """How many checkpoints are waiting online to be brought down."""
+        result = self.run("rev-list", "--count", "HEAD..@{u}", cwd=folder)
+        try:
+            return int(result.out.strip())
+        except ValueError:
+            return 0
+
+    def merge_ff_only(self, folder) -> Result:
+        """Bring down what is waiting online — only when it applies cleanly.
+
+        ``--ff-only`` makes git stop rather than invent a merge, which is the
+        right refusal for somebody who was never taught what a merge conflict is.
+        """
+        return self.run("merge", "--ff-only", "@{u}", cwd=folder, timeout=180)
+
 
 def _kind(code: str) -> str:
     """Turn git's two-letter status into a word the page can print."""

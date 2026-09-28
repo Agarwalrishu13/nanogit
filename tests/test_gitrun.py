@@ -341,5 +341,158 @@ class GitHubToolTests(unittest.TestCase):
         self.assertIn("not installed", result.err)
 
 
+@unittest.skipUnless(GIT, "git is not installed on this machine")
+class CheckpointInspectionTests(unittest.TestCase):
+    """Reading the inside of a checkpoint: files_at, file_at, change_list."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "project"
+        self.root.mkdir()
+        self.git = gitrun.Git(GIT)
+        self.git.init(self.root)
+        self.git.set_identity(self.root, "Tester", "tester@localhost")
+
+    def commit_all(self, message):
+        result = self.git.commit_all(self.root, message)
+        self.assertTrue(result.ok, result.clean_error())
+        return self.git.log(self.root, limit=1)[0]
+
+    def test_files_at_lists_what_a_checkpoint_holds(self):
+        (self.root / "a.txt").write_text("a\n")
+        (self.root / "sub").mkdir()
+        (self.root / "sub" / "b.txt").write_text("b\n")
+        entry = self.commit_all("first")
+        self.assertEqual(self.git.files_at(self.root, entry["sha"]), ["a.txt", "sub/b.txt"])
+
+    def test_files_at_refuses_a_made_up_version(self):
+        self.assertEqual(self.git.files_at(self.root, "not-a-sha"), [])
+
+    def test_file_at_returns_the_content_byte_for_byte(self):
+        blob = bytes(range(256)) * 3  # deliberately not valid text
+        (self.root / "raw.bin").write_bytes(blob)
+        entry = self.commit_all("binary")
+        ok, content = self.git.file_at(self.root, entry["sha"], "raw.bin")
+        self.assertTrue(ok)
+        self.assertEqual(content, blob)
+
+    def test_file_at_says_no_for_a_file_that_is_not_there(self):
+        (self.root / "a.txt").write_text("a\n")
+        entry = self.commit_all("first")
+        ok, _ = self.git.file_at(self.root, entry["sha"], "nothing.txt")
+        self.assertFalse(ok)
+
+    def test_change_list_names_each_file_and_what_happened(self):
+        (self.root / "keep.txt").write_text("one\ntwo\n")
+        (self.root / "go.txt").write_text("bye\n")
+        self.commit_all("first")
+        (self.root / "keep.txt").write_text("one\ntwo\nthree\nfour\n")
+        (self.root / "go.txt").unlink()
+        (self.root / "new.txt").write_text("fresh\n")
+        entry = self.commit_all("second")
+        changes = {item["path"]: item for item in self.git.change_list(self.root, entry["sha"])}
+        self.assertEqual(changes["keep.txt"]["kind"], "changed")
+        self.assertEqual(changes["keep.txt"]["added"], 2)
+        self.assertEqual(changes["keep.txt"]["deleted"], 0)
+        self.assertEqual(changes["go.txt"]["kind"], "gone")
+        self.assertEqual(changes["new.txt"]["kind"], "new")
+
+    def test_change_list_counts_the_first_checkpoint_as_all_new(self):
+        (self.root / "a.txt").write_text("a\nb\nc\n")
+        entry = self.commit_all("first")
+        changes = self.git.change_list(self.root, entry["sha"])
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["kind"], "new")
+        self.assertEqual(changes[0]["added"], 3)
+
+    def test_a_rename_is_read_as_a_rename(self):
+        (self.root / "before.txt").write_text("same content\n")
+        self.commit_all("first")
+        (self.root / "before.txt").rename(self.root / "after.txt")
+        entry = self.commit_all("renamed")
+        changes = {item["path"]: item for item in self.git.change_list(self.root, entry["sha"])}
+        self.assertIn("after.txt", changes)
+        self.assertEqual(changes["after.txt"]["kind"], "renamed")
+        self.assertEqual(changes["after.txt"]["old"], "before.txt")
+
+
+@unittest.skipUnless(GIT, "git is not installed on this machine")
+class GentleGitTests(unittest.TestCase):
+    """undo, bundles, interrupted saves, and talking to a local remote."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.base = Path(self._tmp.name)
+        self.root = self.base / "project"
+        self.root.mkdir()
+        self.git = gitrun.Git(GIT)
+        self.git.init(self.root)
+        self.git.set_identity(self.root, "Tester", "tester@localhost")
+        (self.root / "a.txt").write_text("one\n")
+        self.assertTrue(self.git.commit_all(self.root, "first").ok)
+
+    def test_reset_soft_moves_the_bookmark_back_but_keeps_the_files(self):
+        (self.root / "b.txt").write_text("two\n")
+        self.assertTrue(self.git.commit_all(self.root, "second").ok)
+        self.assertEqual(self.git.count_checkpoints(self.root), 2)
+        self.assertTrue(self.git.reset_soft(self.root).ok)
+        self.assertEqual(self.git.count_checkpoints(self.root), 1)
+        self.assertTrue((self.root / "b.txt").is_file())  # the work is not deleted
+
+    def test_a_bundle_holds_the_history_and_verifies(self):
+        target = self.base / "copy.bundle"
+        self.assertTrue(self.git.bundle(self.root, target).ok)
+        self.assertTrue(target.is_file())
+        self.assertTrue(self.git.bundle_verify(self.root, target).ok)
+
+    def test_the_interrupted_save_mark_is_found_and_cleared(self):
+        lock = self.root / ".git" / "index.lock"
+        self.assertEqual(self.git.interrupted_lock(self.root), "")
+        lock.write_text("")
+        self.assertTrue(self.git.interrupted_lock(self.root))
+        self.assertTrue(self.git.clear_interrupted_lock(self.root))
+        self.assertEqual(self.git.interrupted_lock(self.root), "")
+
+    def test_fetch_incoming_and_ff_only_merge_against_a_local_remote(self):
+        bare = self.base / "remote.git"
+        self.assertTrue(self.git.run("init", "--bare", "-b", "main", str(bare), cwd=self.base).ok)
+        self.git.track_remote(self.root, str(bare))
+        self.assertTrue(self.git.run("push", "-u", "origin", "main", cwd=self.root).ok)
+
+        other = self.base / "other"
+        self.assertTrue(self.git.run("clone", str(bare), str(other), cwd=self.base).ok)
+        self.git.set_identity(other, "Other", "other@localhost")
+        (other / "b.txt").write_text("from elsewhere\n")
+        self.assertTrue(self.git.commit_all(other, "second").ok)
+        self.assertTrue(self.git.run("push", "origin", "main", cwd=other).ok)
+
+        self.assertTrue(self.git.fetch(self.root).ok)
+        self.assertEqual(self.git.incoming(self.root), 1)
+        self.assertEqual(self.git.unpushed(self.root), 0)
+        self.assertTrue(self.git.merge_ff_only(self.root).ok)
+        self.assertTrue((self.root / "b.txt").is_file())
+        self.assertEqual(self.git.incoming(self.root), 0)
+
+    def test_ff_only_merge_refuses_when_both_sides_moved(self):
+        bare = self.base / "remote.git"
+        self.assertTrue(self.git.run("init", "--bare", "-b", "main", str(bare), cwd=self.base).ok)
+        self.git.track_remote(self.root, str(bare))
+        self.assertTrue(self.git.run("push", "-u", "origin", "main", cwd=self.root).ok)
+
+        other = self.base / "other"
+        self.assertTrue(self.git.run("clone", str(bare), str(other), cwd=self.base).ok)
+        self.git.set_identity(other, "Other", "other@localhost")
+        (other / "b.txt").write_text("remote\n")
+        self.assertTrue(self.git.commit_all(other, "remote move").ok)
+        self.assertTrue(self.git.run("push", "origin", "main", cwd=other).ok)
+
+        (self.root / "c.txt").write_text("local\n")
+        self.assertTrue(self.git.commit_all(self.root, "local move").ok)
+        self.assertTrue(self.git.fetch(self.root).ok)
+        self.assertFalse(self.git.merge_ff_only(self.root).ok)  # stops instead of inventing a merge
+
+
 if __name__ == "__main__":
     unittest.main()

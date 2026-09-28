@@ -20,10 +20,10 @@
   <div class="grow"></div>
   <span class="pill" id="gitPill">looking…</span>
   <span class="pill" id="ghPill">…</span>
-  <button class="btn ghost small" id="settingsBtn" title="Settings">⚙︎</button>
+  <button class="btn ghost small" id="settingsBtn" title="Settings" aria-label="Settings">⚙︎</button>
 </header>
 
-<nav class="steps" id="steps">
+<nav class="steps" id="steps" aria-label="The four steps">
   <button class="step" data-step="find"><span>1</span> Find your folder</button>
   <button class="step" data-step="look"><span>2</span> Look it over</button>
   <button class="step" data-step="keep"><span>3</span> Keep it safe</button>
@@ -71,11 +71,11 @@
       <h3>What nanoGit does, in one paragraph</h3>
       <p class="muted">It writes your folder a README so it explains itself, adds a list of things to
         leave out, and then keeps a copy of the folder every time you press a button called
-        <b>Save a checkpoint</b>. That copy lets you go back to how things were last Tuesday. When you
-        want to, one more button puts the whole thing on GitHub so you can share it or get it back if
-        your computer dies.</p>
+        <b>Save a checkpoint</b>. That copy lets you go back to how things were last Tuesday, or pull
+        out a single file you deleted by mistake. When you want to, one more button puts the whole
+        thing on GitHub so you can share it, or get it back if your computer dies.</p>
       <div class="divider"></div>
-      <div class="row">
+      <div class="chips">
         <span class="chip">Checkpoint <b>= commit</b></span>
         <span class="chip">History <b>= repository</b></span>
         <span class="chip">Put it online <b>= push</b></span>
@@ -172,6 +172,16 @@
       <div class="facts" id="keepFacts" style="margin-top:14px"></div>
     </div>
 
+    <div class="card danger" id="interruptedCard" hidden>
+      <h3>⚠︎ A save was interrupted</h3>
+      <p class="muted">The last save stopped halfway — maybe the window was closed too soon. Until it is
+        tidied up, no new checkpoint can be saved. Tidying it removes only git's <i>“I am still working”</i>
+        note; no file of yours is touched.</p>
+      <div class="row" style="margin-top:10px">
+        <button class="btn danger" id="tidyUpBtn">Tidy it up</button>
+      </div>
+    </div>
+
     <div class="two-col">
       <div class="card">
         <h3>Save a checkpoint</h3>
@@ -182,23 +192,57 @@
           <input type="text" id="messageInput" placeholder="Finished the report section" maxlength="160">
         </div>
         <button class="btn primary" id="checkpointBtn">Save a checkpoint</button>
+        <div class="divider"></div>
+        <label class="switch" title="While nanoGit is open, save a checkpoint by itself when things have changed">
+          <input type="checkbox" id="autoSave"> Save by itself, so I do not have to remember
+        </label>
       </div>
 
-      <div class="card">
-        <h3>Put it online</h3>
-        <p class="muted" id="onlineTease">…</p>
-        <button class="btn" id="toOnline">Put this folder on GitHub</button>
-        <div class="divider"></div>
-        <h3>Open it</h3>
-        <p class="muted">A file manager window, showing the folder itself.</p>
-        <button class="btn ghost" id="openFolder2">Open the folder</button>
+      <div class="stack">
+        <div class="card">
+          <h3>Oops buttons</h3>
+          <p class="muted small">Said yes too fast? These are the safe ways to change your mind.</p>
+          <div class="stack">
+            <button class="btn" id="bringBackBtn">Bring back a file I deleted or broke…</button>
+            <button class="btn" id="takeBackBtn">Take back the last checkpoint</button>
+          </div>
+          <p class="faint" style="margin-top:8px">“Take back” un-saves the newest checkpoint. The work in it
+            stays on disk as unsaved changes — nothing is deleted.</p>
+        </div>
+
+        <div class="card">
+          <h3>Put it online</h3>
+          <p class="muted small" id="onlineTease">One press creates a private place on GitHub and sends
+            the whole history up. Your safety net if this computer ever dies.</p>
+          <button class="btn" id="toOnline">Go to step 4 — put it online</button>
+          <div class="divider"></div>
+          <h3>Open it</h3>
+          <p class="muted small">A file manager window, showing the folder itself.</p>
+          <button class="btn ghost" id="openFolder2">Open the folder</button>
+        </div>
       </div>
     </div>
 
     <div class="card">
+      <h3>A copy of the history you can hold in your hand</h3>
+      <p class="muted">The whole history — every checkpoint — as <b>one file</b>, for a USB stick or a
+        second computer. Nothing to sign up for; it opens with ordinary git if you ever need it back.</p>
+      <div class="field">
+        <label for="copyDest">Put the file in this folder</label>
+        <input type="text" id="copyDest" class="mono" placeholder="D:\my USB stick" autocomplete="off">
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="copyBrowseBtn">Pick a place…</button>
+        <button class="btn" id="copyHistoryBtn">Copy the history to a file</button>
+      </div>
+      <div class="log" id="copyLog" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
       <h3>Its history</h3>
-      <p class="muted">Every checkpoint is a copy of the whole folder at that moment. Click
-        <b>Go back</b> to put the files back the way they were — your latest work is saved first, so
+      <p class="muted">Every checkpoint is a copy of the whole folder at that moment.
+        <b>Look inside</b> shows what each one holds and can bring a file back from it;
+        <b>Go back</b> puts everything back the way it was — your latest work is saved first, so
         nothing is lost by looking.</p>
       <div id="historyWrap"><p class="muted">Loading…</p></div>
     </div>
@@ -210,6 +254,15 @@
       <h3>Putting this folder on GitHub</h3>
       <p class="muted" id="readyText">Checking…</p>
       <div id="readyExtra"></div>
+    </div>
+
+    <div class="card" id="latestCard" hidden>
+      <h3>Get the latest version</h3>
+      <p class="muted" id="latestState">Checking the online copy…</p>
+      <div class="row">
+        <button class="btn" id="getLatestBtn" hidden>Get the latest version</button>
+        <button class="btn ghost small" id="recheckBtn">Check again</button>
+      </div>
     </div>
 
     <div class="card highlight" id="publishCard" hidden>
@@ -249,9 +302,10 @@
 
 <!-- ------------------------------------------------------------- picker modal -->
 <div class="modal-back" id="browserBack" hidden>
-  <div class="modal">
-    <h2>Find your folder</h2>
-    <p class="muted">Click a folder to go into it. When you are looking at the right one, press <b>Use this folder</b>.</p>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="browserTitle">Find your folder</h2>
+    <p class="muted" id="browserHelp">Click a folder to go into it. When you are looking at the right
+      one, press <b>Use this folder</b>.</p>
     <div class="crumbs" id="crumbs"></div>
     <div class="browser" id="browser"></div>
     <div class="row" style="margin-top:16px">
@@ -262,9 +316,31 @@
   </div>
 </div>
 
+<!-- ---------------------------------------------- look inside a checkpoint -->
+<div class="modal-back" id="filesBack" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true">
+    <div class="label">Inside one checkpoint</div>
+    <h2 id="filesTitle">…</h2>
+    <p class="muted" id="filesMeta">…</p>
+    <div class="row" style="margin-bottom:4px">
+      <select id="filesSha" style="flex:1;min-width:200px" aria-label="Which checkpoint to look inside"></select>
+    </div>
+    <div class="field">
+      <input type="text" id="filesFilter" placeholder="Type to find a file…" autocomplete="off">
+    </div>
+    <div class="files" id="filesList"></div>
+    <div class="row" style="margin-top:16px">
+      <p class="faint" style="margin:0">A file marked <b>gone now</b> is not in the folder today —
+        bringing it back is safe: anything unsaved is checkpointed first.</p>
+      <div class="grow"></div>
+      <button class="btn ghost" id="filesClose">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- ----------------------------------------------------------- settings modal -->
 <div class="modal-back" id="settingsBack" hidden>
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>Settings</h2>
     <p class="muted">The name and address written on every checkpoint. Only used to say who saved it —
       it is not an account, and nothing is sent anywhere.</p>
@@ -277,6 +353,17 @@
       <input type="text" id="setEmail" maxlength="120" placeholder="you@localhost">
       <span class="faint">If you put this online, GitHub can hide your real address — use
         <span class="sha">your-username@users.noreply.github.com</span>.</span>
+    </div>
+    <div class="divider"></div>
+    <div class="field">
+      <label for="setAuto">Save checkpoints by itself</label>
+      <select id="setAuto">
+        <option value="0">Never — I will press the button myself</option>
+        <option value="60">Once an hour, while nanoGit is open</option>
+        <option value="1440">Once a day, while nanoGit is open</option>
+      </select>
+      <span class="faint">Only ever touches the folder you looked after most recently, and only when
+        something actually changed.</span>
     </div>
     <div class="divider"></div>
     <p class="faint" id="dataDirLine"></p>

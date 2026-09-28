@@ -293,6 +293,122 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 500)
         self.assertIn("went wrong inside the app", payload["error"])
 
+    # -- the 1.0 buttons ----------------------------------------------------
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def _start_two_checkpoints(self):
+        self.post_json("/api/start", {"path": str(self.folder), "name": "HTTP"})
+        (self.folder / "second.txt").write_text("more\n", encoding="utf-8")
+        self.post_json("/api/checkpoint", {"path": str(self.folder), "message": "Second"})
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_looking_inside_a_checkpoint_over_http(self):
+        self._start_two_checkpoints()
+        history = self.get_json("/api/history?full=1&path=" + urllib.request.quote(str(self.folder)))[1]
+        self.assertTrue(history["entries"][0]["what"]["text"])
+        first = history["entries"][-1]
+        status, payload = self.get_json(
+            "/api/checkpoint-files?path=" + urllib.request.quote(str(self.folder)) + "&sha=" + first["sha"]
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"])
+        paths = [row["path"] for row in payload["files"]]
+        self.assertIn("notes.txt", paths)
+        self.assertNotIn("second.txt", paths)
+
+    def test_looking_inside_a_made_up_checkpoint_is_refused(self):
+        status, payload = self.get_json(
+            "/api/checkpoint-files?path=" + urllib.request.quote(str(self.folder)) + "&sha=zzzz"
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["ok"])
+        self.assertIn("not a version", payload["error"])
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_bringing_back_a_file_over_http(self):
+        self._start_two_checkpoints()
+        history = self.get_json("/api/history?path=" + urllib.request.quote(str(self.folder)))[1]
+        (self.folder / "second.txt").unlink()
+        first_with_file = history["entries"][0]["sha"]  # the checkpoint that still had it
+        status, payload = self.post_json(
+            "/api/bring-back", {"path": str(self.folder), "sha": first_with_file, "file": "second.txt"}
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertEqual((self.folder / "second.txt").read_text(encoding="utf-8"), "more\n")
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_bringing_back_across_the_folder_fence_is_refused(self):
+        self._start_two_checkpoints()
+        history = self.get_json("/api/history?path=" + urllib.request.quote(str(self.folder)))[1]
+        sha = history["entries"][0]["sha"]
+        status, payload = self.post_json(
+            "/api/bring-back", {"path": str(self.folder), "sha": sha, "file": "../escape.txt"}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("not a file", payload["error"])
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_taking_back_over_http_keeps_the_work(self):
+        self._start_two_checkpoints()
+        status, payload = self.post_json("/api/take-back", {"path": str(self.folder)})
+        self.assertEqual(status, 200, payload)
+        self.assertTrue((self.folder / "second.txt").is_file())
+        self.assertEqual(payload["status"]["checkpoints"], 1)
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_tidying_up_over_http(self):
+        self._start_two_checkpoints()
+        (self.folder / ".git" / "index.lock").write_text("")
+        status, payload = self.get_json("/api/status?path=" + urllib.request.quote(str(self.folder)))
+        self.assertTrue(payload["interrupted"])
+        status, payload = self.post_json("/api/tidy-up", {"path": str(self.folder)})
+        self.assertEqual(status, 200, payload)
+        self.assertFalse((self.folder / ".git" / "index.lock").exists())
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_copying_the_history_over_http(self):
+        self._start_two_checkpoints()
+        stick = self.base / "stick"
+        stick.mkdir(exist_ok=True)
+        status, payload = self.post_json(
+            "/api/copy-history", {"path": str(self.folder), "destination": str(stick)}
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(Path(payload["file"]).is_file())
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_online_check_over_http_for_an_offline_folder(self):
+        self._start_two_checkpoints()
+        status, payload = self.post_json("/api/online-check", {"path": str(self.folder)})
+        self.assertEqual(status, 200)
+        self.assertIn("not been put online", payload["explain"])
+
+    @unittest.skipUnless(GIT_FOUND, "git is not installed on this machine")
+    def test_get_latest_over_http_for_an_offline_folder_is_a_kind_no(self):
+        self._start_two_checkpoints()
+        status, payload = self.post_json("/api/get-latest", {"path": str(self.folder)})
+        self.assertEqual(status, 400)
+        self.assertIn("nothing to get", payload["error"])
+
+    def test_the_new_buttons_are_guarded_like_the_old_ones(self):
+        for route in ("/api/take-back", "/api/bring-back", "/api/tidy-up", "/api/copy-history", "/api/get-latest"):
+            status, payload = self.post_json(
+                route, {"path": str(self.folder)}, headers={"Origin": "https://evil.example"}
+            )
+            self.assertEqual(status, 403, route)
+            self.assertIn("did not come from this app", payload["error"], route)
+        # The read-only ones stay readable, because they change nothing.
+        status, _ = self.call("GET", "/api/checkpoint-files?path=" + urllib.request.quote(str(self.folder)) + "&sha=z",
+                              headers={"Origin": "https://evil.example"})
+        self.assertNotEqual(status, 403)
+
+    def test_the_auto_setting_round_trips(self):
+        status, payload = self.get_json("/api/settings")
+        self.assertIn("auto_checkpoint_minutes", payload["settings"])
+        status, payload = self.post_json("/api/settings", {"auto_checkpoint_minutes": 1440})
+        self.assertEqual(payload["settings"]["auto_checkpoint_minutes"], 1440)
+        status, payload = self.post_json("/api/settings", {"auto_checkpoint_minutes": 0})
+        self.assertEqual(payload["settings"]["auto_checkpoint_minutes"], 0)
+
 
 class FreePortTests(unittest.TestCase):
     def test_a_busy_port_is_stepped_over(self):

@@ -7,7 +7,7 @@ that is already on the computer.
 """
 
 APP_NAME = "nanoGit"
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 TAGLINE = "your folder, kept safe — and online — without learning git"
 
 # Where the app looks for a folder somebody dragged in when the browser can

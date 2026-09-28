@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanogit"
-version = "0.1.0"
+version = "1.0.0"
 description = "Your folder, kept safe and put online, without learning git. Nothing to install."
 readme = "README.md"
 requires-python = ">=3.9"

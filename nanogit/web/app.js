@@ -11,8 +11,11 @@ const state = {
   readiness: null,
   settings: {},
   health: null,
+  history: [],
   browsePath: "",
   browseParent: "",
+  browseMode: "open",        // "open" a folder | "dest" for the history copy
+  filesData: null,           // the checkpoint the files modal is showing
   busy: false,
 };
 
@@ -61,9 +64,27 @@ function busy(on, label) {
   state.busy = on;
   document.querySelectorAll("button").forEach((b) => {
     if (b.dataset.always === "1") return;
-    b.disabled = on || b.dataset.wasDisabled === "1";
+    if (on) {
+      if (b.disabled) b.dataset.wasDisabled = "1";
+      b.disabled = true;
+    } else {
+      if (b.dataset.wasDisabled === "1") { b.disabled = true; delete b.dataset.wasDisabled; }
+      else b.disabled = false;
+    }
   });
   if (on && label) toast(label);
+}
+
+function factInto(box, key, value, sub, mood) {
+  const box_ = el("div", "fact" + (mood ? " " + mood : ""));
+  box_.appendChild(el("div", "k", key));
+  box_.appendChild(el("div", "v", value));
+  if (sub) box_.appendChild(el("div", "s", sub));
+  box.appendChild(box_);
+}
+
+function plural(n, one, many) {
+  return n + " " + (n === 1 ? one : (many || one + "s"));
 }
 
 /* ---------------------------------------------------------------- the steps */
@@ -134,8 +155,16 @@ async function boot() {
   $("setEmail").value = state.settings.author_email || "";
   $("dataDirLine").textContent = "nanoGit keeps its own notes in " + (state.settings.data_dir || "your home folder") + ".";
   $("repoPrivate").checked = state.settings.publish_private !== false;
+  syncAutoSave();
 
   loadRecent();
+}
+
+function syncAutoSave() {
+  const minutes = Number(state.settings.auto_checkpoint_minutes || 0);
+  const select = $("setAuto");
+  select.value = [0, 60, 1440].includes(minutes) ? String(minutes) : "1440";
+  $("autoSave").checked = minutes > 0;
 }
 
 async function loadRecent() {
@@ -274,17 +303,10 @@ function renderLook(facts) {
 
   const factsBox = $("facts");
   factsBox.textContent = "";
-  const add = (key, value, sub) => {
-    const box = el("div", "fact");
-    box.appendChild(el("div", "k", key));
-    box.appendChild(el("div", "v", value));
-    if (sub) box.appendChild(el("div", "s", sub));
-    factsBox.appendChild(box);
-  };
-  add("Files", facts.file_count.toLocaleString(), facts.truncated ? "more than shown" : "counted");
-  add("Size", facts.total_size_text, facts.biggest && facts.biggest.length ? "largest: " + facts.biggest[0].size_text : "");
-  add("Looks like", facts.kind.replace(/^an? /, ""), facts.because);
-  add("Already tracked", facts.is_repo ? "yes" : "no", facts.is_repo ? "nanoGit found .git inside" : "nanoGit will start one");
+  factInto(factsBox, "Files", facts.file_count.toLocaleString(), facts.truncated ? "more than shown" : "counted");
+  factInto(factsBox, "Size", facts.total_size_text, facts.biggest && facts.biggest.length ? "largest: " + facts.biggest[0].size_text : "");
+  factInto(factsBox, "Looks like", facts.kind.replace(/^an? /, ""), facts.because);
+  factInto(factsBox, "Already tracked", facts.is_repo ? "yes" : "no", facts.is_repo ? "nanoGit found .git inside" : "nanoGit will start one");
 
   const chips = $("breakdown");
   chips.textContent = "";
@@ -396,7 +418,7 @@ $("afterStart").addEventListener("click", () => openKeep(state.folder));
 async function openKeep(path) {
   busy(true, "Reading the history…");
   const status = await api("/api/status?path=" + encodeURIComponent(path));
-  const history = await api("/api/history?path=" + encodeURIComponent(path));
+  const history = await api("/api/history?full=1&path=" + encodeURIComponent(path));
   busy(false);
   if (!status.ok) return toast(status.error || "Could not read that folder.", "bad");
   state.folder = status.path;
@@ -413,17 +435,26 @@ function renderKeep() {
 
   const factsBox = $("keepFacts");
   factsBox.textContent = "";
-  const add = (key, value, sub) => {
-    const box = el("div", "fact");
-    box.appendChild(el("div", "k", key));
-    box.appendChild(el("div", "v", value));
-    if (sub) box.appendChild(el("div", "s", sub));
-    factsBox.appendChild(box);
-  };
-  add("Checkpoints", String(status.checkpoints || 0), status.first_when ? "first one " + status.first_when.slice(0, 10) : "");
-  add("Unsaved changes", String((status.changes || []).length), (status.changes || []).length ? "worth a checkpoint" : "all saved");
-  add("Online", status.remote ? "yes" : "not yet", status.remote ? shortPath(status.remote) : "press the button on the right");
-  add("Signed as", status.identity && status.identity.name ? status.identity.name : "not set", (status.identity || {}).email || "");
+  factInto(factsBox, "Checkpoints", String(status.checkpoints || 0),
+    status.first_when ? "first one " + status.first_when.slice(0, 10) : "");
+  const changes = (status.changes || []).length;
+  factInto(factsBox, "Unsaved changes", String(changes), changes ? "worth a checkpoint" : "all saved",
+    changes ? "nudge" : "happy");
+
+  // The gentle nudge: when it has been a while, say so kindly.
+  const days = status.days_since_last;
+  if (days === null || days === undefined) {
+    factInto(factsBox, "Last saved", "not yet", "the first checkpoint is waiting");
+  } else {
+    const late = days >= 7 && changes > 0;
+    factInto(factsBox, "Last saved", status.last_when_text || "—",
+      late ? "a checkpoint would be kind to your future self" : (changes ? "older than the changes below" : "and everything still matches"),
+      late ? "nudge" : "");
+  }
+  factInto(factsBox, "Online", status.remote ? "yes" : "not yet",
+    status.remote ? shortPath(status.remote) : "see step 4 when you are ready");
+
+  $("interruptedCard").hidden = !status.interrupted;
 
   $("changeSummary").textContent = status.change_summary || "";
   const list = $("changeList");
@@ -441,11 +472,18 @@ function renderKeep() {
   if ((status.changes || []).length > 12) {
     list.appendChild(el("div", "faint", "…and " + (status.changes.length - 12) + " more"));
   }
-  $("checkpointBtn").disabled = (status.changes || []).length === 0;
+  $("checkpointBtn").disabled = changes === 0;
+  $("checkpointBtn").dataset.wasDisabled = changes === 0 ? "1" : "";
+
+  $("takeBackBtn").disabled = (status.checkpoints || 0) < 2;
+  $("takeBackBtn").title = (status.checkpoints || 0) < 2
+    ? "There is only the first checkpoint — that one stays."
+    : "Un-save the newest checkpoint; the work stays on disk.";
 
   $("onlineTease").textContent = status.remote
-    ? "This folder already has a home online. Sending the new checkpoints up is one press."
-    : "One press creates a repository under your GitHub account and sends the folder up. Private by default.";
+    ? "It already has a home online. Step 4 sends the new checkpoints up — or brings down what arrived from another computer."
+    : "One press creates a private place on GitHub and sends the whole history up. Your safety net if this computer ever dies.";
+  $("toOnline").textContent = status.remote ? "Go to step 4 — send it up" : "Go to step 4 — put it online";
 
   renderHistory();
 }
@@ -466,12 +504,19 @@ function renderHistory() {
   entries.forEach((entry) => {
     const row = el("tr", entry.was_first ? "first" : "");
     row.appendChild(el("td", "", entry.when_text || entry.when));
-    row.appendChild(el("td", "", (entry.was_first ? "★ " : "") + entry.message));
+
+    const saved = el("td");
+    saved.appendChild(el("span", "", (entry.was_first ? "★ " : "") + entry.message));
+    if (entry.what && entry.what.text) saved.appendChild(el("span", "what", entry.what.text));
+    row.appendChild(saved);
+
     row.appendChild(el("td", "sha", entry.short));
-    const action = el("td");
-    if (entry.was_first) {
-      action.appendChild(el("span", "faint", "the first"));
-    } else {
+    const action = el("td", "actions");
+    const look = el("button", "btn tiny", "Look inside");
+    look.addEventListener("click", () => openFiles(entry.sha));
+    action.appendChild(look);
+    if (!entry.was_first) {
+      action.appendChild(document.createTextNode(" "));
       const button = el("button", "btn tiny", "Go back");
       button.addEventListener("click", () => goBack(entry));
       action.appendChild(button);
@@ -491,8 +536,12 @@ $("checkpointBtn").addEventListener("click", async () => {
     return toast(result.error || "Could not save.", "bad");
   }
   $("messageInput").value = "";
-  toast(result.steps[0] || "Saved.", result.ok ? "good" : "bad");
+  (result.steps || ["Saved."]).forEach((line) => toast(line, "good"));
   await openKeep(state.folder);
+});
+
+$("messageInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !$("checkpointBtn").disabled) $("checkpointBtn").click();
 });
 
 async function goBack(entry) {
@@ -506,9 +555,166 @@ async function goBack(entry) {
   const result = await api("/api/go-back", { path: state.folder, sha: entry.sha });
   busy(false);
   if (!result.ok) return toast(result.error || "Could not go back.", "bad");
-  result.steps.forEach((line) => toast(line, "good"));
+  (result.steps || []).forEach((line) => toast(line, "good"));
   await openKeep(state.folder);
 }
+
+/* ------------------------------------------------------------ oops buttons */
+$("takeBackBtn").addEventListener("click", async () => {
+  const latest = (state.history || [])[0];
+  const sure = confirm(
+    "Take back the last checkpoint" + (latest ? ", “" + latest.message + "”" : "") + "?\n\n" +
+    "The work in it is NOT deleted: it becomes unsaved changes, so you can fix whatever was " +
+    "wrong and save a new checkpoint."
+  );
+  if (!sure) return;
+  busy(true, "Taking it back…");
+  const result = await api("/api/take-back", { path: state.folder });
+  busy(false);
+  if (!result.ok) return toast(result.error || "Could not take it back.", "bad");
+  (result.steps || []).forEach((line) => toast(line, "good"));
+  await openKeep(state.folder);
+});
+
+$("bringBackBtn").addEventListener("click", () => {
+  const entries = state.history || [];
+  if (!entries.length) return toast("No checkpoints yet — save one first.", "bad");
+  openFiles(entries[0].sha, true);
+});
+
+$("tidyUpBtn").addEventListener("click", async () => {
+  busy(true, "Tidying…");
+  const result = await api("/api/tidy-up", { path: state.folder });
+  busy(false);
+  if (!result.ok) return toast(result.error || "Could not tidy up.", "bad");
+  (result.steps || []).forEach((line) => toast(line, "good"));
+  await openKeep(state.folder);
+});
+
+/* ---------------------------------------------- look inside a checkpoint */
+function fillCheckpointSelect() {
+  const select = $("filesSha");
+  select.textContent = "";
+  (state.history || []).forEach((entry) => {
+    const option = el("option", "", (entry.when_text || entry.when) + "  —  " + entry.message);
+    option.value = entry.sha;
+    select.appendChild(option);
+  });
+}
+
+async function openFiles(sha, forBringBack) {
+  fillCheckpointSelect();
+  const select = $("filesSha");
+  select.value = sha;
+  $("filesBack").hidden = false;
+  $("filesFilter").value = "";
+  $("filesList").innerHTML = "";
+  $("filesList").appendChild(el("p", "muted", "Looking inside…"));
+  if (forBringBack) {
+    toast("Pick the checkpoint that still had the file, then press “Bring it back”.");
+  }
+  await loadFiles(sha);
+}
+
+async function loadFiles(sha) {
+  const data = await api("/api/checkpoint-files?path=" + encodeURIComponent(state.folder)
+    + "&sha=" + encodeURIComponent(sha));
+  if (!data.ok) {
+    $("filesBack").hidden = true;
+    return toast(data.error || "Could not look inside that checkpoint.", "bad");
+  }
+  state.filesData = data;
+  $("filesTitle").textContent = data.message || "(no message)";
+  $("filesMeta").textContent = "Saved " + (data.when_text || data.when) + " · "
+    + plural(data.total || (data.files || []).length, "file") + " inside"
+    + (data.what && data.what.text ? " · this checkpoint: " + data.what.text : "");
+  renderFileList();
+}
+
+function renderFileList() {
+  const data = state.filesData;
+  const list = $("filesList");
+  list.textContent = "";
+  if (!data) return;
+  const needle = ($("filesFilter").value || "").trim().toLowerCase();
+  let rows = data.files || [];
+  if (needle) rows = rows.filter((file) => file.path.toLowerCase().includes(needle));
+  // Files gone from the folder today float to the top — they are usually why
+  // somebody opened this window in the first place.
+  rows = rows.slice().sort((a, b) => (a.gone_now === b.gone_now ? a.path.localeCompare(b.path) : a.gone_now ? -1 : 1));
+  if (!rows.length) {
+    list.appendChild(el("p", "muted", needle ? "No file here matches that." : "This checkpoint is empty."));
+    return;
+  }
+  const KIND_WORD = { new: "new here", gone: "removed here", changed: "changed here", renamed: "renamed here" };
+  rows.slice(0, 300).forEach((file) => {
+    const row = el("div", "file-row" + (file.gone_now ? " gone" : ""));
+    row.appendChild(el("span", "", file.gone_now ? "🕘" : "📄"));
+    row.appendChild(el("span", "name", file.path));
+    if (file.gone_now) row.appendChild(el("span", "tag gone", "gone now"));
+    else if (file.kind && KIND_WORD[file.kind]) row.appendChild(el("span", "tag delta", KIND_WORD[file.kind]));
+    const bring = el("button", "btn tiny", "Bring it back");
+    bring.addEventListener("click", () => bringBack(file.path, data));
+    row.appendChild(bring);
+    list.appendChild(row);
+  });
+  if (data.truncated) {
+    list.appendChild(el("p", "faint", "Only the first ones are shown — the checkpoint holds "
+      + plural(data.total, "file") + " in all."));
+  }
+}
+
+async function bringBack(path, data) {
+  const sure = confirm(
+    "Bring “" + path + "” back the way it was " + (data.when_text || data.when) + "?\n\n" +
+    "If the folder has unsaved work, it is checkpointed first — nothing is lost either way."
+  );
+  if (!sure) return;
+  busy(true, "Bringing it back…");
+  const result = await api("/api/bring-back", { path: state.folder, sha: data.sha, file: path });
+  busy(false);
+  if (!result.ok) return toast(result.error || "Could not bring it back.", "bad");
+  (result.steps || []).forEach((line) => toast(line, "good"));
+  await openKeep(state.folder);
+  if (!$("filesBack").hidden) {
+    fillCheckpointSelect();
+    $("filesSha").value = (state.history[0] || {}).sha || data.sha;
+    await loadFiles($("filesSha").value || data.sha);
+  }
+}
+
+$("filesSha").addEventListener("change", () => loadFiles($("filesSha").value));
+$("filesFilter").addEventListener("input", () => renderFileList());
+$("filesClose").addEventListener("click", () => ($("filesBack").hidden = true));
+
+/* ------------------------------------------------- a copy you can hold */
+$("copyBrowseBtn").addEventListener("click", () => {
+  openBrowser($("copyDest").value || state.browsePath || "", "", "dest");
+});
+
+$("copyDest").addEventListener("input", updateCopyButton);
+
+function updateCopyButton() {
+  const empty = !$("copyDest").value.trim();
+  $("copyHistoryBtn").disabled = empty;
+  $("copyHistoryBtn").dataset.wasDisabled = empty ? "1" : "";
+}
+
+$("copyHistoryBtn").addEventListener("click", async () => {
+  const destination = $("copyDest").value.trim();
+  if (!destination) return toast("Pick where the copy should go first.", "bad");
+  busy(true, "Writing the history to one file…");
+  const result = await api("/api/copy-history", { path: state.folder, destination });
+  busy(false);
+  const log = $("copyLog");
+  if (result.ok) {
+    showLog(log, result.steps || [], "");
+    toast("The copy is written.", "good");
+  } else {
+    showLog(log, [result.error || "That did not work."], "bad");
+    toast(result.error || "That did not work.", "bad");
+  }
+});
 
 $("toOnline").addEventListener("click", () => openOnline(state.folder));
 $("goToKeep").addEventListener("click", () => openKeep(state.folder));
@@ -522,6 +728,7 @@ async function openOnline(path) {
   state.readiness = ready;
   renderReady();
   show("online");
+  refreshLatest();
 }
 
 function renderReady() {
@@ -565,8 +772,10 @@ function renderReady() {
     card.appendChild(el("h3", "", "🚫 " + ready.blocking_files[0].path + " is "
       + ready.blocking_files[0].size_text));
     card.appendChild(el("p", "muted", "GitHub will not accept a file that big. Add it to the leave-out list, "
-      + "or move it out of the folder, and come back."));
+      + "or move it out of the folder, and come back — nanoGit checks before uploading, so nothing "
+      + "half-uploads and fails at the end."));
     const row = el("div", "row");
+    row.style.marginTop = "10px";
     const fix = el("button", "btn", "Leave that file out");
     fix.addEventListener("click", () => leaveOut(ready.blocking_files.map((item) => item.path)));
     row.appendChild(fix);
@@ -584,12 +793,47 @@ function renderReady() {
   $("publishLogCard").hidden = true;
 }
 
+async function refreshLatest() {
+  const ready = state.readiness || {};
+  const card = $("latestCard");
+  if (!ready.remote) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  $("latestState").textContent = "Checking the online copy…";
+  $("getLatestBtn").hidden = true;
+  const stateOnline = await api("/api/online-check", { path: state.folder });
+  state.online = stateOnline;
+  if (!stateOnline.ok) {
+    $("latestState").textContent = stateOnline.error || "Could not reach the online copy.";
+    return;
+  }
+  $("latestState").textContent = stateOnline.explain || "";
+  $("getLatestBtn").hidden = !(stateOnline.reachable && stateOnline.incoming > 0);
+}
+
 async function leaveOut(patterns) {
   const result = await api("/api/leave-out", { path: state.folder, patterns });
   if (!result.ok) return toast(result.error || "Could not change the leave-out list.", "bad");
   toast(result.sentence, "good");
   await openOnline(state.folder);
 }
+
+$("recheckBtn").addEventListener("click", refreshLatest);
+
+$("getLatestBtn").addEventListener("click", async () => {
+  busy(true, "Bringing it down…");
+  const result = await api("/api/get-latest", { path: state.folder });
+  busy(false);
+  if (!result.ok) {
+    toast(result.error || "Could not get the latest version.", "bad");
+    $("latestState").textContent = result.error || "Could not get the latest version.";
+    return;
+  }
+  (result.steps || []).forEach((line) => toast(line, "good"));
+  await refreshLatest();
+});
 
 $("publishBtn").addEventListener("click", async () => {
   busy(true, "Talking to GitHub…");
@@ -615,6 +859,7 @@ $("publishBtn").addEventListener("click", async () => {
       link.appendChild(anchor);
     }
     toast("It is online.", "good");
+    refreshLatest();
   } else {
     showLog($("publishLog"), [result.error || "That did not work."], "bad");
     if (result.manual) {
@@ -645,9 +890,26 @@ $("manualBtn").addEventListener("click", () => {
 });
 
 /* ------------------------------------------------------ the folder picker */
-function openBrowser(path, hint) {
+function openBrowser(path, hint, mode) {
+  state.browseMode = mode || "open";
   state.browsePath = path;
   $("browserBack").hidden = false;
+  if (state.browseMode === "dest") {
+    $("browserTitle").textContent = "Where should the copy go?";
+    $("browserHelp").innerHTML = "";
+    $("browserHelp").textContent = "A USB stick, the desktop, anywhere outside the folder itself. "
+      + "Then press “Put it here”.";
+    $("useFolder").textContent = "Put it here";
+  } else {
+    $("browserTitle").textContent = "Find your folder";
+    $("browserHelp").innerHTML = "";
+    const plain = document.createTextNode("Click a folder to go into it. When you are looking at the right one, press ");
+    const bold = el("b", "", "Use this folder");
+    $("browserHelp").appendChild(plain);
+    $("browserHelp").appendChild(bold);
+    $("browserHelp").appendChild(document.createTextNode("."));
+    $("useFolder").textContent = "Use this folder";
+  }
   if (hint) toast("Looking for a folder called “" + hint + "”.");
   loadBrowse(path);
 }
@@ -681,7 +943,7 @@ async function loadBrowse(path) {
   const folders = data.folders || [];
   if (!folders.length) {
     browser.appendChild(el("p", "muted", data.path
-      ? "No folders inside this one. Press “Use this folder” if this is the one you meant."
+      ? "No folders inside this one. Press the button below if this is the one you meant."
       : "Pick a place above to start."));
   }
   folders.forEach((folder) => {
@@ -704,6 +966,11 @@ async function loadBrowse(path) {
 $("useFolder").addEventListener("click", () => {
   if (!state.browsePath) return toast("Go into a folder first.", "bad");
   $("browserBack").hidden = true;
+  if (state.browseMode === "dest") {
+    $("copyDest").value = state.browsePath;
+    updateCopyButton();
+    return;
+  }
   openFolder(state.browsePath);
 });
 $("browserClose").addEventListener("click", () => ($("browserBack").hidden = true));
@@ -716,16 +983,45 @@ $("saveSettings").addEventListener("click", async () => {
     author_name: $("setName").value.trim(),
     author_email: $("setEmail").value.trim(),
     remember_author: true,
+    auto_checkpoint_minutes: Number($("setAuto").value || 0),
   });
   state.settings = result.settings || state.settings;
+  syncAutoSave();
   $("settingsBack").hidden = true;
-  toast("Saved.", "good");
+  toast("Saved. " + autoSentence(), "good");
+});
+
+function autoSentence() {
+  const minutes = Number(state.settings.auto_checkpoint_minutes || 0);
+  if (!minutes) return "Saving by itself is off.";
+  if (minutes < 120) return "It will save by itself about once an hour, while this window is open.";
+  return "It will save by itself about once a day, while this window is open.";
+}
+
+$("autoSave").addEventListener("change", async () => {
+  const result = await api("/api/settings", {
+    auto_checkpoint_minutes: $("autoSave").checked ? 1440 : 0,
+  });
+  state.settings = result.settings || state.settings;
+  syncAutoSave();
+  toast(autoSentence(), "good");
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  $("browserBack").hidden = true;
-  $("settingsBack").hidden = true;
+  if (event.key === "Escape") {
+    $("browserBack").hidden = true;
+    $("settingsBack").hidden = true;
+    $("filesBack").hidden = true;
+    return;
+  }
+  // Ctrl+S / Cmd+S: save a checkpoint, if we are on that panel.
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    if (!$("panel-keep").hidden && !$("checkpointBtn").disabled) {
+      event.preventDefault();
+      $("checkpointBtn").click();
+    }
+  }
 });
 
+updateCopyButton();
 boot();

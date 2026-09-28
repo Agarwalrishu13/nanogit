@@ -180,7 +180,17 @@ def create_app() -> App:
         folder, problem = _folder(request)
         if problem:
             return problem
-        return Json(repo.history(git, folder))
+        return Json(repo.history(git, folder, with_what=request.q("full") == "1"))
+
+    @app.get("/api/checkpoint-files")
+    def checkpoint_files(request):
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence(), "files": []})
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        return Json(repo.checkpoint_files(git, folder, request.q("sha", "")))
 
     # -- changing it -------------------------------------------------------
     @app.post("/api/start")
@@ -235,6 +245,93 @@ def create_app() -> App:
             return problem
         payload = request.json({}) or {}
         result = repo.go_back(git, folder, payload.get("sha", ""))
+        return Json(result, status=200 if result.get("ok") else 400)
+
+    @app.post("/api/take-back")
+    def take_back(request):
+        guard = _guard(request)
+        if guard:
+            return guard
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence()}, status=400)
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        result = repo.take_back(git, folder)
+        return Json(result, status=200 if result.get("ok") else 400)
+
+    @app.post("/api/bring-back")
+    def bring_back(request):
+        guard = _guard(request)
+        if guard:
+            return guard
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence()}, status=400)
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        payload = request.json({}) or {}
+        result = repo.bring_back(git, folder, payload.get("sha", ""), payload.get("file", ""))
+        return Json(result, status=200 if result.get("ok") else 400)
+
+    @app.post("/api/tidy-up")
+    def tidy_up(request):
+        guard = _guard(request)
+        if guard:
+            return guard
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence()}, status=400)
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        result = repo.tidy_up(git, folder)
+        return Json(result, status=200 if result.get("ok") else 400)
+
+    @app.post("/api/copy-history")
+    def copy_history(request):
+        guard = _guard(request)
+        if guard:
+            return guard
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence()}, status=400)
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        payload = request.json({}) or {}
+        result = repo.copy_history(git, folder, payload.get("destination", ""))
+        return Json(result, status=200 if result.get("ok") else 400)
+
+    @app.post("/api/online-check")
+    def online_check(request):
+        # Reads only, but it asks fetch to update what origin is known to have,
+        # so it gets the same stranger protection as the other POSTs.
+        guard = _guard(request)
+        if guard:
+            return guard
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence()}, status=400)
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        return Json(repo.online_check(git, folder))
+
+    @app.post("/api/get-latest")
+    def get_latest(request):
+        guard = _guard(request)
+        if guard:
+            return guard
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "error": repo.git_missing_sentence()}, status=400)
+        folder, problem = _folder(request)
+        if problem:
+            return problem
+        result = repo.get_latest(git, folder)
         return Json(result, status=200 if result.get("ok") else 400)
 
     @app.post("/api/leave-out")
@@ -309,6 +406,7 @@ def _public_settings() -> dict:
         "remember_author": settings.get("remember_author", False),
         "last_folder": settings.get("last_folder", ""),
         "publish_private": settings.get("publish_private", True),
+        "auto_checkpoint_minutes": settings.get("auto_checkpoint_minutes", 0),
         "data_dir": str(store.data_dir()),
     }
 
