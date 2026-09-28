@@ -13,7 +13,7 @@ version**, **Put it online**.
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9+-58a6ff.svg)]()
 [![dependencies](https://img.shields.io/badge/required%20deps-0-f0883e.svg)]()
-[![tests](https://img.shields.io/badge/tests-218%20passing-3ddc97.svg)]()
+[![tests](https://img.shields.io/badge/tests-224%20passing-3ddc97.svg)]()
 
 </div>
 
@@ -21,6 +21,13 @@ version**, **Put it online**.
 
 > **Part of [the nano family](https://github.com/Agarwalrishu13/nano)** — eleven offline-first apps for people who do not code. This is the map of the whole project.
 
+
+## What's new in 0.2
+
+- **See what will be saved, before saving.** The checkpoint card now shows the
+  real changed lines of each text file — additions and removals — before you
+  press the button. New files show their first lines; pictures just say they
+  changed. Looking changes nothing.
 
 ## What this is, in one paragraph
 
