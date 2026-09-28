@@ -12,6 +12,10 @@ a lighter, calmer page.
 
 ### New buttons
 
+- **See what will be saved, before saving.** The checkpoint card shows the real
+  changed lines of each text file — additions and removals — before the button
+  is pressed. New files show their first lines; binary files just say they
+  changed. Never more than a page of it, and looking saves nothing.
 - **Look inside a checkpoint.** Every checkpoint now shows what it holds and,
   underneath, what it changed in words and line counts:
   *"3 files: 1 new, 2 changed · +45 −12"*. The first checkpoint counts too.
@@ -63,7 +67,7 @@ a lighter, calmer page.
 
 ### The numbers
 
-- 278 tests (was 218), all running against real git in real folders —
+- 284 tests (was 218), all running against real git in real folders —
   including one that deletes a JPEG's bytes and proves they come back
   identical, and one that drives a whole "two computers" conversation through
   a bare repository standing in for GitHub.

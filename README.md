@@ -13,7 +13,7 @@ version**, **Put it online**.
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9+-58a6ff.svg)]()
 [![dependencies](https://img.shields.io/badge/required%20deps-0-f0883e.svg)]()
-[![tests](https://img.shields.io/badge/tests-278%20passing-3ddc97.svg)]()
+[![tests](https://img.shields.io/badge/tests-284%20passing-3ddc97.svg)]()
 
 </div>
 
@@ -21,6 +21,25 @@ version**, **Put it online**.
 
 > **Part of [the nano family](https://github.com/Agarwalrishu13/nano)** — eleven offline-first apps for people who do not code. This is the map of the whole project.
 
+
+## What's new in 1.0
+
+- **See what will be saved, before saving.** The checkpoint card shows the real
+  changed lines of each text file — additions in green, removals in red —
+  before you press the button. Looking changes nothing.
+- **Bring back a file.** Deleted it, or broke it since the last save? Open any
+  checkpoint, pick the file marked *gone now*, and it comes back byte for byte.
+- **Take back the last checkpoint.** The newest checkpoint is un-saved, the
+  work stays on disk. The first checkpoint is the floor, always.
+- **Copy the history to a file.** The whole history as one `.bundle` — for a
+  USB stick or a second computer, verified to open, no account needed.
+- **Get the latest version.** One press brings down what arrived online from
+  another computer, with three kind refusals when it would not be clean.
+- **Save by itself.** Optional hourly or daily checkpoints, only when something
+  changed. Plus a gentle nudge when a checkpoint is overdue.
+- **Tidy it up.** One click clears the mark git leaves when a save is stopped
+  halfway — and only that mark.
+- The page is lighter and calmer throughout. Full story in [CHANGELOG.md](CHANGELOG.md).
 
 ## What this is, in one paragraph
 

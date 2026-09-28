@@ -253,6 +253,23 @@ pre.code {
 .toast.bad { border-left-color: var(--bad); }
 .toast.good { border-left-color: var(--good); }
 
+/* --------------------------------------------------- the glance diff view */
+.diff {
+  border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden;
+  background: var(--surface-2);
+}
+.diff-head {
+  font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--muted);
+  background: var(--surface-3); padding: 5px 12px; border-bottom: 1px solid var(--border-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.diff-line {
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55; padding: 1px 12px;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--faint);
+}
+.diff-line.plus { background: var(--good-soft); color: var(--good); }
+.diff-line.minus { background: var(--bad-soft); color: var(--bad); }
+
 /* -------------------------------------------------------------------- modal */
 .modal-back {
   position: fixed; inset: 0; background: rgba(23, 36, 47, 0.45); z-index: 50;

@@ -480,6 +480,8 @@ function renderKeep() {
     ? "There is only the first checkpoint — that one stays."
     : "Un-save the newest checkpoint; the work stays on disk.";
 
+  loadDiffPreview();
+
   $("onlineTease").textContent = status.remote
     ? "It already has a home online. Step 4 sends the new checkpoints up — or brings down what arrived from another computer."
     : "One press creates a private place on GitHub and sends the whole history up. Your safety net if this computer ever dies.";
@@ -1025,3 +1027,30 @@ document.addEventListener("keydown", (event) => {
 
 updateCopyButton();
 boot();
+
+async function loadDiffPreview() {
+  const wrap = $("diffList");
+  if (!wrap) return;
+  wrap.textContent = "";
+  if (!state.folder || !(state.status && (state.status.changes || []).length)) return;
+  try {
+    const data = await api("/api/preview?path=" + encodeURIComponent(state.folder));
+    if (data.why) { wrap.appendChild(el("div", "faint", data.why)); return; }
+    let shownAny = false;
+    (data.files || []).forEach((file) => {
+      if (!file.lines || !file.lines.length) return;
+      shownAny = true;
+      const block = el("div", "diff");
+      const head = el("div", "diff-head", file.path);
+      block.appendChild(head);
+      file.lines.forEach((line) => {
+        const mood = line[0] === "+" ? "plus" : line[0] === "-" ? "minus" : "";
+        block.appendChild(el("div", "diff-line " + mood, line));
+      });
+      wrap.appendChild(block);
+    });
+    if (shownAny) {
+      wrap.insertBefore(el("div", "label", "A glance at what will be saved — nothing is saved by looking:"), wrap.firstChild);
+    }
+  } catch (err) { /* the preview is extra help; never in the way */ }
+}

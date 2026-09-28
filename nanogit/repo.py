@@ -249,6 +249,53 @@ def start(git: Git, folder, name: str = "", description: str = "", author_name: 
     }
 
 
+# The glance before saving: never more than a page of it.
+MAX_DIFF_FILES = 12
+MAX_LINES_PER_FILE = 4
+MAX_TEXT_BYTES = 256 * 1024
+
+
+def _looks_like_text(path) -> bool:
+    """A cheap, honest check: a NUL byte in the first kilobyte means binary."""
+    try:
+        with open(path, "rb") as handle:
+            chunk = handle.read(1024)
+    except OSError:
+        return False
+    return b"\x00" not in chunk
+
+
+def preview_changes(git: Git, folder) -> dict:
+    """What a checkpoint is about to save, piece by piece, before saving.
+
+    Changed text files show a few of the real changed lines; new text files
+    show their first lines; pictures and other binary things just say that
+    they changed. Never more than twelve files and four lines each — this is
+    a glance, not a diff viewer.
+    """
+    if not git.is_own_repo(folder) or not git.count_checkpoints(folder):
+        return {"ok": True, "files": [],
+                "why": "This folder has no history yet, so the first checkpoint saves everything in it."}
+    changes = git.status(folder)
+    files: list[dict] = []
+    for change in changes[:MAX_DIFF_FILES]:
+        entry = {"path": change["path"], "kind": change["kind"], "lines": []}
+        target = Path(folder) / change["path"]
+        if change["kind"] == "new":
+            try:
+                if target.is_file() and target.stat().st_size <= MAX_TEXT_BYTES and _looks_like_text(target):
+                    entry["lines"] = ["+ " + line for line in target.read_text(
+                        encoding="utf-8", errors="replace").splitlines()[:MAX_LINES_PER_FILE]]
+            except OSError:
+                pass
+        elif change["kind"] in ("changed", "renamed", "gone"):
+            diff = git.run("diff", "HEAD", "--", change["path"], cwd=folder)
+            entry["lines"] = [line for line in diff.lines()
+                              if line[:1] in "+-" and line[:3] not in ("+++", "---")][:MAX_LINES_PER_FILE]
+        files.append(entry)
+    return {"ok": True, "files": files, "total": len(changes)}
+
+
 def checkpoint(git: Git, folder, message: str = "") -> dict:
     """Save everything in the folder as it is now."""
     if not git.is_own_repo(folder):

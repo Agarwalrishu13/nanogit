@@ -907,3 +907,48 @@ class LeaveOutTests(RepoTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PreviewTests(RepoTestCase):
+    """The glance before saving: what will this checkpoint contain?"""
+
+    def test_changed_lines_are_shown_before_saving(self):
+        self.write("notes.txt", "the first version\n")
+        self.start()
+        self.write("notes.txt", "the first version\nthe second line\n")
+        result = repo.preview_changes(self.git, str(self.root))
+        notes = next(f for f in result["files"] if f["path"] == "notes.txt")
+        self.assertTrue(any(line.startswith("+") and "second line" in line for line in notes["lines"]))
+
+    def test_new_files_show_their_first_lines(self):
+        self.start()
+        self.write("fresh.txt", "hello\nworld\n")
+        result = repo.preview_changes(self.git, str(self.root))
+        fresh = next(f for f in result["files"] if f["path"] == "fresh.txt")
+        self.assertEqual(fresh["lines"][0], "+ hello")
+
+    def test_a_folder_with_no_history_says_so(self):
+        result = repo.preview_changes(self.git, str(self.root))
+        self.assertIn("no history", result["why"])
+
+    def test_binary_files_do_not_show_lines(self):
+        self.start()
+        (self.root / "logo.png").write_bytes(b"\x00\x01binary\x00")
+        result = repo.preview_changes(self.git, str(self.root))
+        logo = next(f for f in result["files"] if f["path"] == "logo.png")
+        self.assertEqual(logo["lines"], [])
+
+    def test_deletions_are_shown_as_minus_lines(self):
+        self.write("gone.txt", "keep\nlose me\n")
+        self.start()
+        (self.root / "gone.txt").unlink()
+        result = repo.preview_changes(self.git, str(self.root))
+        gone = next(f for f in result["files"] if f["path"] == "gone.txt")
+        self.assertTrue(any(line.startswith("-") and "lose me" in line for line in gone["lines"]))
+
+    def test_the_glance_saves_nothing(self):
+        self.write("notes.txt", "v1\n")
+        self.start()
+        self.write("notes.txt", "v2\n")
+        repo.preview_changes(self.git, str(self.root))
+        self.assertEqual(self.status()["checkpoints"], 1)  # looking changed nothing

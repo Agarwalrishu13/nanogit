@@ -162,6 +162,13 @@ def create_app() -> App:
         facts["status"] = repo.status(git, folder) if git else {"ok": True, "tracked": False}
         return Json(facts)
 
+    @app.get("/api/preview")
+    def preview(request):
+        git = repo.open_git()
+        if not git:
+            return Json({"ok": False, "files": [], "why": "git was not found on this computer."})
+        return Json(repo.preview_changes(git, request.q("path", "")))
+
     @app.get("/api/status")
     def status(request):
         git = repo.open_git()
