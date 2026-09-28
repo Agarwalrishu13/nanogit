@@ -442,6 +442,7 @@ function renderKeep() {
     list.appendChild(el("div", "faint", "…and " + (status.changes.length - 12) + " more"));
   }
   $("checkpointBtn").disabled = (status.changes || []).length === 0;
+  loadDiffPreview();
 
   $("onlineTease").textContent = status.remote
     ? "This folder already has a home online. Sending the new checkpoints up is one press."
@@ -729,3 +730,20 @@ document.addEventListener("keydown", (event) => {
 });
 
 boot();
+
+async function loadDiffPreview() {
+  const wrap = $("diffList");
+  if (!wrap || !state.folder) { if (wrap) wrap.textContent = ""; return; }
+  try {
+    const data = await api("/api/preview?path=" + encodeURIComponent(state.folder));
+    wrap.textContent = "";
+    if (data.why) { wrap.appendChild(el("div", "faint", data.why)); return; }
+    (data.files || []).forEach((file) => {
+      if (!file.lines || !file.lines.length) return;
+      const head = el("div", "item");
+      head.appendChild(el("div", "body", file.path));
+      wrap.appendChild(head);
+      file.lines.forEach((line) => wrap.appendChild(el("div", "faint", "    " + line)));
+    });
+  } catch (err) { wrap.textContent = ""; }
+}
